@@ -7,6 +7,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   translateReplace: () => ipcRenderer.send('translate:replace'),
   translateGrammar: () => ipcRenderer.send('translate:grammar'),
   showDictionary: () => ipcRenderer.send('dictionary:show'),
+  showAsk: () => ipcRenderer.send('ask:show'),
+  closeAsk: () => ipcRenderer.send('ask:close'),
+  askChat: (messages) => ipcRenderer.invoke('ask:chat', messages),
+  onAskFocus: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ask:focus', handler);
+    return () => ipcRenderer.removeListener('ask:focus', handler);
+  },
+  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
+  openUpdatePage: (url) => ipcRenderer.invoke('updates:open', url),
+  getChangelog: () => ipcRenderer.invoke('changelog:get'),
   onTranslationLoading: (callback) => {
     ipcRenderer.on('translation:loading', (_event, data) => callback(data));
   },

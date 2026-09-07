@@ -1,0 +1,36 @@
+{
+  "entries": [
+    {
+      "version": "1.0.7",
+      "date": "2026-09-07",
+      "title": "Ask AI polish, markdown & update check",
+      "items": [
+        "Ask AI popup matches Dictionary (title bar + close button)",
+        "Ask AI replies render Markdown (headings, lists, code, tables)",
+        "Home screen scrolls and groups actions more clearly",
+        "Update check uses the correct GitHub repo (Luma-ai-translator)"
+      ]
+    },
+    {
+      "version": "1.0.6",
+      "date": "2026-09-04",
+      "title": "Ask AI, Dictionary & Updates",
+      "items": [
+        "Ask AI — type a question in a popup near your cursor and chat with Gemini",
+        "Dictionary — look up words or sentences via Alt+D",
+        "Check for updates from GitHub Releases inside Settings",
+        "What's New changelog inside the app"
+      ]
+    },
+    {
+      "version": "1.0.5",
+      "date": "2026-09-04",
+      "title": "Luma polish",
+      "items": [
+        "App language / UI localization",
+        "Replace Selection and Fix Grammar workflows",
+        "Default models and language defaults updated"
+      ]
+    }
+  ]
+}

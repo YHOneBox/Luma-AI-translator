@@ -16,6 +16,7 @@ A desktop translation app built with **Electron + React**. It runs in the backgr
   - [4. Replace Selection](#4-replace-selection)
   - [5. Fix Grammar](#5-fix-grammar)
   - [6. Dictionary](#6-dictionary)
+  - [7. Ask AI](#7-ask-ai)
 - [Result Popup](#result-popup)
   - [Word Layout (single word)](#word-layout-single-word)
   - [Phrase Layout (sentence / paragraph)](#phrase-layout-sentence--paragraph)
@@ -193,6 +194,21 @@ This works for **any language** (and mixed-language text). It does **not** trans
 4. Results use the same layouts as selection translate: **word** detail view for a single word, or **phrase** cards for longer text.
 
 Press `Esc` or the × button to close the dictionary popup.
+
+---
+
+### 7. Ask AI
+
+**Hotkey:** `Alt+A` (customizable)
+
+**Step-by-step:**
+
+1. Press `Alt+A` (or click **Ask AI** in the main window / tray).
+2. A chat popup opens near your cursor.
+3. Type a question and press **Enter** (Shift+Enter for a new line).
+4. Gemini replies in a multi-turn chat you can continue or **Clear**.
+
+Use **What's New** on the home screen to see the changelog and **Check for updates** against GitHub Releases. For portable builds, download the new file, quit Luma, then run the new executable — settings stay in `Luma-Data`.
 
 ---
 
@@ -386,7 +402,8 @@ Get a free key from [Google AI Studio](https://aistudio.google.com/apikey).
 | `Alt+R` | **Replace** highlighted text with a translation |
 | `Alt+G` | **Fix grammar** of highlighted text (any language) and replace it |
 | `Alt+D` | Open **Dictionary** near the cursor to type a word/sentence and look it up |
-| `Esc` | Cancel region selection / close dictionary popup |
+| `Alt+A` | Open **Ask AI** chat near the cursor |
+| `Esc` | Cancel region selection / close dictionary or Ask AI popup |
 
 All hotkeys can be changed in **Settings**.
 
@@ -475,7 +492,7 @@ npm run dist:portable
 Output:
 
 ```
-release/Luma-1.0.6-win-Portable.exe
+release/Luma-1.0.7-win-Portable.exe
 ```
 
 Other build commands:

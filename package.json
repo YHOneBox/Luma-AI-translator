@@ -1,6 +1,6 @@
 {
   "name": "luma",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Luma — desktop translation app that captures screen text and translates via Gemini",
   "main": "electron/main.js",
   "scripts": {
@@ -18,12 +18,17 @@
     "name": "Yi-Ho Chang",
     "url": "https://yhonebox.github.io/yh/"
   },
-  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YHOneBox/Luma-ai-translator.git"
+  },
   "dependencies": {
     "@google/genai": "^1.0.0",
     "dotenv": "^16.4.7",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -42,6 +47,7 @@
       "electron/**/*",
       "locales/**/*",
       "assets/**/*",
+      "changelog.json",
       "package.json"
     ],
     "directories": {

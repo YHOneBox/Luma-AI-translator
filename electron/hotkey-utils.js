@@ -91,6 +91,7 @@ function validateHotkeys(settings) {
     { name: 'Replace Selection', value: settings.hotkeyReplace },
     { name: 'Fix Grammar', value: settings.hotkeyGrammar },
     { name: 'Dictionary', value: settings.hotkeyDictionary },
+    { name: 'Ask AI', value: settings.hotkeyAsk },
   ];
 
   const active = entries.filter((e) => e.value);

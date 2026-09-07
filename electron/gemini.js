@@ -507,6 +507,108 @@ const GRAMMAR_SCHEMA = {
   required: ['source_text', 'source_language', 'corrected_text'],
 };
 
+const CHAT_TIMEOUT_MS = 60000;
+
+const ASK_AI_SYSTEM_PROMPT = `You are Luma Ask AI — a fast, helpful desktop assistant.
+Answer clearly and directly. Match the user's language unless they ask otherwise.
+Use short paragraphs or tight bullet lists when helpful. Do not invent API keys or claim you can control the user's computer.`;
+
+async function generateTextWithFallback(ai, settings, systemPrompt, contents, onProgress, timeoutMs) {
+  const modelsToTry = getModelChain(settings);
+  if (modelsToTry.length === 0) {
+    throw new Error('No models configured. Open Settings and select a primary model.');
+  }
+
+  const errors = [];
+
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const model = modelsToTry[i];
+    const attempt = i + 1;
+
+    onProgress?.(
+      modelsToTry.length > 1
+        ? `Thinking (${attempt}/${modelsToTry.length}): ${model}...`
+        : `Thinking with ${model}...`
+    );
+
+    try {
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction: systemPrompt,
+          },
+        }),
+        timeoutMs,
+        `Timed out after ${timeoutMs / 1000}s`
+      );
+
+      const text = String(response.text || '').trim();
+      if (!text) {
+        throw new Error('Empty response from model.');
+      }
+
+      return { text, model };
+    } catch (err) {
+      const reason = shortenError(err);
+      errors.push(`${model}: ${reason}`);
+
+      const nextModel = modelsToTry[i + 1];
+      if (nextModel && reason.includes('Timed out')) {
+        onProgress?.(`Timed out on ${model}, trying ${nextModel}...`);
+      }
+    }
+  }
+
+  throw new Error(`All models failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Multi-turn chat for Ask AI.
+ * @param {{ role: 'user' | 'assistant', content: string }[]} messages
+ */
+async function chatAsk(messages, onProgress) {
+  const settings = loadSettings();
+  const apiKey = resolveApiKey(settings);
+  if (!apiKey) {
+    throw new Error('No Gemini API key configured. Open Settings → API Keys to add one.');
+  }
+
+  const cleaned = (Array.isArray(messages) ? messages : [])
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').trim(),
+    }))
+    .filter((m) => m.content);
+
+  if (cleaned.length === 0) {
+    throw new Error('Type a question first.');
+  }
+
+  const contents = cleaned.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+
+  const ai = new GoogleGenAI({ apiKey });
+  onProgress?.('Thinking…');
+
+  const { text, model } = await generateTextWithFallback(
+    ai,
+    settings,
+    ASK_AI_SYSTEM_PROMPT,
+    contents,
+    onProgress,
+    CHAT_TIMEOUT_MS
+  );
+
+  return {
+    reply: text,
+    modelUsed: model,
+  };
+}
+
 async function correctGrammarForReplace(text, onProgress) {
   const settings = loadSettings();
   const apiKey = resolveApiKey(settings);
@@ -559,7 +661,9 @@ module.exports = {
   translateText,
   translateForReplace,
   correctGrammarForReplace,
+  chatAsk,
   detectInputMode,
   WORD_TIMEOUT_MS,
   PHRASE_TIMEOUT_MS,
+  CHAT_TIMEOUT_MS,
 };

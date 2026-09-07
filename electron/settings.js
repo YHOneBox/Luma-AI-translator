@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = {
   hotkeyReplace: 'Alt+R',
   hotkeyGrammar: 'Alt+G',
   hotkeyDictionary: 'Alt+D',
+  hotkeyAsk: 'Alt+A',
   apiKeys: [],
   activeApiKeyId: null,
 };
@@ -97,6 +98,7 @@ function migrateSettings(settings) {
     'hotkeyReplace',
     'hotkeyGrammar',
     'hotkeyDictionary',
+    'hotkeyAsk',
   ]) {
     if (!migrated[key]) {
       migrated[key] = DEFAULT_SETTINGS[key];

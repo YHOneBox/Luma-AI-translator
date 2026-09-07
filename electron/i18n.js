@@ -88,12 +88,31 @@ function t(key, vars = {}, locale = activeLocale) {
   return formatMessage(value, vars);
 }
 
+function deepFill(base, override) {
+  if (!base || typeof base !== 'object' || Array.isArray(base)) {
+    return override !== undefined ? override : base;
+  }
+  const result = { ...base };
+  if (!override || typeof override !== 'object') return result;
+  for (const key of Object.keys(override)) {
+    const ov = override[key];
+    if (ov && typeof ov === 'object' && !Array.isArray(ov) && typeof result[key] === 'object') {
+      result[key] = deepFill(result[key], ov);
+    } else if (ov !== undefined) {
+      result[key] = ov;
+    }
+  }
+  return result;
+}
+
 function getBundle(locale = activeLocale) {
   const code = normalizeLocale(locale);
+  const en = loadBundle('en');
+  const localized = code === 'en' ? en : deepFill(en, loadBundle(code));
   return {
     locale: code,
     meta: getLocaleMeta(code),
-    messages: loadBundle(code),
+    messages: localized,
   };
 }
 

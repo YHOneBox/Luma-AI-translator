@@ -26,7 +26,8 @@ const {
   nativeImage,
 } = require('electron');
 const { captureScreen } = require('./capture');
-const { translateScreenshot, translateText, translateForReplace, correctGrammarForReplace } = require('./gemini');
+const { translateScreenshot, translateText, translateForReplace, correctGrammarForReplace, chatAsk } = require('./gemini');
+const { checkForUpdates, getChangelog, openReleasePage } = require('./updater');
 const { getSelectedText, replaceSelectedText } = require('./selection');
 const {
   loadSettings,
@@ -61,6 +62,7 @@ let tray = null;
 let mainWindow = null;
 let popupWindow = null;
 let dictionaryWindow = null;
+let askWindow = null;
 let regionWindow = null;
 let statusWindow = null;
 let statusBarCloseTimer = null;
@@ -94,6 +96,7 @@ function rebuildTrayMenu() {
     { label: t('tray.replaceSelection'), click: () => startReplaceSelectionTranslation() },
     { label: t('tray.fixGrammar'), click: () => startGrammarCorrectionSelection() },
     { label: t('tray.dictionary'), click: () => openDictionaryWindow() },
+    { label: t('tray.ask'), click: () => openAskWindow() },
     { label: t('tray.selectRegion'), click: () => openRegionSelector() },
     { type: 'separator' },
     {
@@ -131,9 +134,9 @@ function createMainWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 460,
-    height: 720,
-    minWidth: 400,
+    width: 440,
+    height: 760,
+    minWidth: 380,
     minHeight: 560,
     title: 'Luma',
     icon: ICON_PATH,
@@ -230,26 +233,36 @@ function createPopupWindow() {
 function placeNearCursor(width, height) {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
+  const area = display.workArea || display.bounds;
+
+  // Fit inside the visible work area (avoids title bar going off-screen)
+  const maxWidth = Math.max(320, area.width - 24);
+  const maxHeight = Math.max(360, area.height - 24);
+  const w = Math.min(width, maxWidth);
+  const h = Math.min(height, maxHeight);
+
   let x = cursor.x + 16;
   let y = cursor.y + 16;
 
-  if (x + width > display.bounds.x + display.bounds.width) {
-    x = display.bounds.x + display.bounds.width - width - 16;
+  if (x + w > area.x + area.width) {
+    x = area.x + area.width - w - 12;
   }
-  if (y + height > display.bounds.y + display.bounds.height) {
-    y = display.bounds.y + display.bounds.height - height - 16;
+  if (y + h > area.y + area.height) {
+    y = area.y + area.height - h - 12;
   }
+  if (x < area.x + 8) x = area.x + 8;
+  if (y < area.y + 8) y = area.y + 8;
 
-  return { x, y };
+  return { x, y, width: w, height: h };
 }
 
 function openDictionaryWindow() {
   const popupWidth = 460;
   const popupHeight = 560;
-  const { x, y } = placeNearCursor(popupWidth, popupHeight);
+  const { x, y, width, height } = placeNearCursor(popupWidth, popupHeight);
 
   if (dictionaryWindow && !dictionaryWindow.isDestroyed()) {
-    dictionaryWindow.setBounds({ x, y, width: popupWidth, height: popupHeight });
+    dictionaryWindow.setBounds({ x, y, width, height });
     dictionaryWindow.show();
     dictionaryWindow.focus();
     dictionaryWindow.webContents.send('dictionary:focus');
@@ -257,8 +270,8 @@ function openDictionaryWindow() {
   }
 
   dictionaryWindow = new BrowserWindow({
-    width: popupWidth,
-    height: popupHeight,
+    width,
+    height,
     minWidth: 340,
     minHeight: 380,
     x,
@@ -294,6 +307,60 @@ function openDictionaryWindow() {
   });
 
   return dictionaryWindow;
+}
+
+function openAskWindow() {
+  const popupWidth = 460;
+  const popupHeight = 560;
+  const { x, y, width, height } = placeNearCursor(popupWidth, popupHeight);
+
+  if (askWindow && !askWindow.isDestroyed()) {
+    askWindow.setBounds({ x, y, width, height });
+    askWindow.show();
+    askWindow.focus();
+    askWindow.webContents.send('ask:focus');
+    return askWindow;
+  }
+
+  // Same frameless popup pattern as Dictionary
+  askWindow = new BrowserWindow({
+    width,
+    height,
+    minWidth: 340,
+    minHeight: 380,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    resizable: true,
+    movable: true,
+    ...(process.platform === 'win32' ? { thickFrame: true } : {}),
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  askWindow.loadURL(getPageUrl('ask'));
+
+  askWindow.once('ready-to-show', () => {
+    if (askWindow && !askWindow.isDestroyed()) {
+      askWindow.show();
+      askWindow.focus();
+      askWindow.webContents.send('ask:focus');
+    }
+  });
+
+  askWindow.on('closed', () => {
+    askWindow = null;
+  });
+
+  return askWindow;
 }
 
 async function runDictionaryLookup(text) {
@@ -630,6 +697,7 @@ function registerHotkeys() {
     { accel: settings.hotkeyReplace, action: () => startReplaceSelectionTranslation() },
     { accel: settings.hotkeyGrammar, action: () => startGrammarCorrectionSelection() },
     { accel: settings.hotkeyDictionary, action: () => openDictionaryWindow() },
+    { accel: settings.hotkeyAsk, action: () => openAskWindow() },
   ];
 
   const failed = [];
@@ -652,6 +720,31 @@ function setupIpc() {
   ipcMain.on('translate:replace', () => startReplaceSelectionTranslation());
   ipcMain.on('translate:grammar', () => startGrammarCorrectionSelection());
   ipcMain.on('dictionary:show', () => openDictionaryWindow());
+  ipcMain.on('ask:show', () => openAskWindow());
+  ipcMain.on('ask:close', () => {
+    if (askWindow && !askWindow.isDestroyed()) {
+      askWindow.close();
+    }
+  });
+  ipcMain.handle('ask:chat', async (_event, messages) => {
+    try {
+      return await chatAsk(messages);
+    } catch (err) {
+      throw new Error(err.message || t('ask.failed'));
+    }
+  });
+  ipcMain.handle('updates:check', async () => {
+    try {
+      return await checkForUpdates();
+    } catch (err) {
+      return { error: err.message || t('updates.checkFailed') };
+    }
+  });
+  ipcMain.handle('updates:open', (_event, url) => {
+    openReleasePage(url);
+    return true;
+  });
+  ipcMain.handle('changelog:get', () => getChangelog());
   ipcMain.on('dictionary:close', () => {
     if (dictionaryWindow && !dictionaryWindow.isDestroyed()) {
       dictionaryWindow.close();

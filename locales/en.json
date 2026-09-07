@@ -10,21 +10,29 @@
     "subtitle": "Screen translation powered by Gemini",
     "by": "by",
     "settings": "Settings",
+    "tipsTitle": "Quick tips",
+    "groups": {
+      "capture": "Capture",
+      "selection": "Selection",
+      "tools": "Lookup & Ask"
+    },
     "actions": {
       "translateScreen": "Translate Screen",
       "selectRegion": "Select Region",
       "translateSelection": "Translate Selection",
       "replaceSelection": "Replace Selection",
       "fixGrammar": "Fix Grammar",
-      "dictionary": "Dictionary"
+      "dictionary": "Dictionary",
+      "ask": "Ask AI"
     },
     "hints": {
-      "popup": "Results appear in a popup near your cursor.",
-      "workflows": "Highlight text, then use selection lookup, replace translation, or fix grammar — each pastes or shows results without leaving your app. Press the dictionary hotkey to type a word or sentence to look up.",
+      "popup": "Results open in a popup near your cursor.",
+      "workflows": "Highlight text for lookup, replace, or grammar — or open Dictionary / Ask AI to type.",
       "customize": "Customize hotkeys and languages in Settings.",
-      "tray": "Closing this window keeps Luma running in the system tray."
+      "tray": "Closing this window keeps Luma running in the tray; hotkeys stay active."
     },
-    "footerHotkeys": "Hotkeys stay active in the background"
+    "footerHotkeys": "Hotkeys stay active in the background",
+    "whatsNew": "What's New"
   },
   "onboarding": {
     "title": "Choose your language",
@@ -78,7 +86,8 @@
       "selection": "Translate selection",
       "replace": "Replace selection",
       "grammar": "Fix grammar",
-      "dictionary": "Dictionary"
+      "dictionary": "Dictionary",
+      "ask": "Ask AI"
     },
     "models": {
       "scan": "Scan Available Models",
@@ -154,6 +163,7 @@
     "replaceSelection": "Replace Selection",
     "fixGrammar": "Fix Grammar",
     "dictionary": "Dictionary",
+    "ask": "Ask AI",
     "selectRegion": "Select Region",
     "quit": "Quit"
   },
@@ -164,6 +174,36 @@
     "lookingUp": "Looking up…",
     "idleHint": "Type a word or sentence, then press Enter to look it up.",
     "lookupFailed": "Lookup failed."
+  },
+  "ask": {
+    "title": "Ask AI",
+    "placeholder": "Ask anything…",
+    "send": "Send",
+    "clear": "Clear",
+    "thinking": "Thinking…",
+    "you": "You",
+    "assistant": "Luma",
+    "idleHint": "Ask a question like on Gemini chat. Enter to send, Shift+Enter for a new line.",
+    "failed": "Ask AI failed."
+  },
+  "whatsNew": {
+    "title": "What's New",
+    "changelog": "Changelog",
+    "empty": "No changelog entries yet."
+  },
+  "updates": {
+    "title": "Updates",
+    "check": "Check for updates",
+    "checking": "Checking…",
+    "hint": "Luma checks GitHub Releases for a newer portable build.",
+    "current": "You are on v{version}.",
+    "available": "Update available: v{version}",
+    "upToDate": "You're up to date (v{version}).",
+    "latest": "Latest: v{version}",
+    "download": "Download update",
+    "releasePage": "Open release page",
+    "checkFailed": "Could not check for updates.",
+    "portableHint": "Download the new file, then close this app and run the new version. Your settings stay in Luma-Data."
   },
   "statusBar": {
     "working": "Working…",

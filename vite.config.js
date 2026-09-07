@@ -17,6 +17,7 @@ export default defineConfig({
         region: resolve(__dirname, 'src/region.html'),
         status: resolve(__dirname, 'src/status.html'),
         dictionary: resolve(__dirname, 'src/dictionary.html'),
+        ask: resolve(__dirname, 'src/ask.html'),
       },
     },
   },

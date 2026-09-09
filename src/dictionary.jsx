@@ -42,6 +42,9 @@ function DictionaryApp() {
 
     const api = window.electronAPI;
     const unsubFocus = api?.onDictionaryFocus?.(() => focusInput());
+    api?.onDictionaryPronunciation?.((patch) => {
+      setData((prev) => (prev ? { ...prev, ...patch } : prev));
+    });
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);

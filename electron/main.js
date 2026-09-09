@@ -67,6 +67,8 @@ let regionWindow = null;
 let statusWindow = null;
 let statusBarCloseTimer = null;
 let appIsQuitting = false;
+let popupResultSeq = 0;
+let dictionaryResultSeq = 0;
 
 function getPageUrl(page) {
   const file = page === 'main' ? 'index' : page;
@@ -369,23 +371,27 @@ async function runDictionaryLookup(text) {
     throw new Error(t('dictionary.lookupFailed'));
   }
 
+  const seq = ++dictionaryResultSeq;
   const result = await translateText(trimmed);
-  const layoutMode = resolveLayoutMode(result);
-  let enriched;
-
-  if (layoutMode === 'word') {
-    enriched = await enrichWithPronunciation(result);
-  } else {
-    const { targetLanguage } = loadSettings();
-    enriched = await enrichPhraseResult(result, targetLanguage);
+  if (seq !== dictionaryResultSeq) {
+    return formatImmediateResult(result);
   }
 
-  return {
-    ...enriched,
-    layoutMode: enriched.layoutMode || layoutMode,
-    isSingleWord: layoutMode === 'word' && Boolean(enriched.isSingleWord),
-    lookupWord: enriched.lookupWord || resolveLookupWord(enriched) || undefined,
-  };
+  const immediate = formatImmediateResult(result);
+  enrichTranslationResult(result)
+    .then((enriched) => {
+      if (seq !== dictionaryResultSeq) return;
+      sendToDictionary('dictionary:pronunciation', enriched);
+    })
+    .catch(() => {
+      if (seq !== dictionaryResultSeq) return;
+      sendToDictionary('dictionary:pronunciation', {
+        pronunciationLoading: false,
+        pronunciationReady: false,
+      });
+    });
+
+  return immediate;
 }
 
 function openRegionSelector() {
@@ -531,7 +537,64 @@ function sendToPopup(channel, data) {
   }
 }
 
+function sendToDictionary(channel, data) {
+  if (dictionaryWindow && !dictionaryWindow.isDestroyed()) {
+    dictionaryWindow.webContents.send(channel, data);
+  }
+}
+
+function formatImmediateResult(result) {
+  const layoutMode = resolveLayoutMode(result);
+  const lookupWord = resolveLookupWord(result) || result.lookupWord;
+  return {
+    ...result,
+    layoutMode: result.layoutMode || layoutMode,
+    isSingleWord: layoutMode === 'word' && Boolean(lookupWord || result.isSingleWord),
+    lookupWord: lookupWord || undefined,
+    phonetic: result.phonetic || result.phonetic_ipa || '',
+    pronunciationLoading: true,
+    pronunciationReady: false,
+  };
+}
+
+async function enrichTranslationResult(result) {
+  const layoutMode = resolveLayoutMode(result);
+  let enriched;
+
+  if (layoutMode === 'word') {
+    enriched = await enrichWithPronunciation(result);
+  } else {
+    const { targetLanguage } = loadSettings();
+    enriched = await enrichPhraseResult(result, targetLanguage);
+  }
+
+  return {
+    ...enriched,
+    layoutMode: enriched.layoutMode || layoutMode,
+    isSingleWord: layoutMode === 'word' && Boolean(enriched.isSingleWord),
+    lookupWord: enriched.lookupWord || resolveLookupWord(enriched) || undefined,
+    pronunciationLoading: false,
+    pronunciationReady: true,
+  };
+}
+
+function enrichInBackground(result, seq, send, expectedSeq) {
+  enrichTranslationResult(result)
+    .then((enriched) => {
+      if (seq !== expectedSeq()) return;
+      send('translation:pronunciation', enriched);
+    })
+    .catch(() => {
+      if (seq !== expectedSeq()) return;
+      send('translation:pronunciation', {
+        pronunciationLoading: false,
+        pronunciationReady: false,
+      });
+    });
+}
+
 async function runWithPopup(task) {
+  const seq = ++popupResultSeq;
   createPopupWindow();
   await waitForPopupReady();
 
@@ -541,25 +604,12 @@ async function runWithPopup(task) {
 
   try {
     const result = await task(sendProgress);
-    const layoutMode = resolveLayoutMode(result);
-    let enriched;
+    if (seq !== popupResultSeq) return;
 
-    if (layoutMode === 'word') {
-      sendProgress(t('progress.loadingPronunciation'));
-      enriched = await enrichWithPronunciation(result);
-    } else {
-      sendProgress(t('progress.loadingAudio'));
-      const { targetLanguage } = loadSettings();
-      enriched = await enrichPhraseResult(result, targetLanguage);
-    }
-
-    sendToPopup('translation:result', {
-      ...enriched,
-      layoutMode: enriched.layoutMode || layoutMode,
-      isSingleWord: layoutMode === 'word' && Boolean(enriched.isSingleWord),
-      lookupWord: enriched.lookupWord || resolveLookupWord(enriched) || undefined,
-    });
+    sendToPopup('translation:result', formatImmediateResult(result));
+    enrichInBackground(result, seq, sendToPopup, () => popupResultSeq);
   } catch (err) {
+    if (seq !== popupResultSeq) return;
     sendToPopup('translation:error', {
       message: err.message || t('progress.translationFailed'),
     });

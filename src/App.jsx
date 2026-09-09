@@ -78,24 +78,43 @@ function ChevronIcon({ up }) {
   );
 }
 
-function PhraseCard({ text, bold, audioUrl, playing, onPlay, onCopy, copied, expand, onToggleExpand, needsExpand }) {
+function PhraseCard({
+  text,
+  bold,
+  audioUrl,
+  audioLoading,
+  playing,
+  onPlay,
+  onCopy,
+  copied,
+  expand,
+  onToggleExpand,
+  needsExpand,
+}) {
   const { t } = useI18n();
   const displayText =
     !expand && needsExpand ? `${text.slice(0, SOURCE_COLLAPSE_CHARS).trim()}…` : text;
+  const showAudio = Boolean(audioUrl || audioLoading);
 
   return (
     <section className="phrase-card">
       <p className={`phrase-card-text ${bold ? 'phrase-translation' : ''}`}>{displayText}</p>
       <div className="phrase-card-footer">
         <div className="phrase-card-actions">
-          {audioUrl && (
+          {showAudio && (
             <button
               type="button"
               className={`icon-btn ${playing ? 'active' : ''}`}
               onClick={onPlay}
+              disabled={!audioUrl}
               aria-label={t('popup.playAudio')}
+              title={audioLoading && !audioUrl ? t('progress.loadingAudio') : t('popup.playAudio')}
             >
-              <SpeakerIcon active={playing} />
+              {audioLoading && !audioUrl ? (
+                <span className="icon-spinner" />
+              ) : (
+                <SpeakerIcon active={playing} />
+              )}
             </button>
           )}
           <button
@@ -125,6 +144,8 @@ export function WordResult({ data, playing, copied, onPlay, onCopy }) {
     data.base_word || data.sourceText || data.lookupWord || data.translation || '';
   const highlightTarget = data.base_word || data.sourceText || '';
   const hasAudio = Boolean(data.audioDataUrl || data.audioUs || data.audioUk);
+  const audioLoading = Boolean(data.pronunciationLoading) && !hasAudio;
+  const showAudio = hasAudio || audioLoading;
   const phoneticDisplay =
     data.phonetic || data.phonetic_ipa
       ? (data.phonetic || data.phonetic_ipa).startsWith('/')
@@ -137,19 +158,29 @@ export function WordResult({ data, playing, copied, onPlay, onCopy }) {
       <header className="word-header">
         <div className="word-title-row">
           <h1 className="word-title">{displayWord}</h1>
-          {(phoneticDisplay || hasAudio) && (
+          {(phoneticDisplay || showAudio) && (
             <div className="word-phonetic-row">
               {phoneticDisplay && (
                 <span className="phonetic-inline">{phoneticDisplay}</span>
               )}
-              {hasAudio && (
+              {showAudio && (
                 <button
                   type="button"
                   className={`icon-btn ${playing ? 'active' : ''}`}
                   onClick={onPlay}
+                  disabled={!hasAudio}
                   aria-label={t('popup.playPronunciation')}
+                  title={
+                    audioLoading
+                      ? t('progress.loadingPronunciation')
+                      : t('popup.playPronunciation')
+                  }
                 >
-                  <SpeakerIcon active={playing} />
+                  {audioLoading ? (
+                    <span className="icon-spinner" />
+                  ) : (
+                    <SpeakerIcon active={playing} />
+                  )}
                 </button>
               )}
             </div>
@@ -180,14 +211,24 @@ export function WordResult({ data, playing, copied, onPlay, onCopy }) {
           <div className="context-card-header">
             <span className="context-word">{data.translation}</span>
             <div className="context-actions">
-              {hasAudio && (
+              {showAudio && (
                 <button
                   type="button"
                   className={`icon-btn ${playing ? 'active' : ''}`}
                   onClick={onPlay}
+                  disabled={!hasAudio}
                   aria-label={t('popup.playPronunciation')}
+                  title={
+                    audioLoading
+                      ? t('progress.loadingPronunciation')
+                      : t('popup.playPronunciation')
+                  }
                 >
-                  <SpeakerIcon active={playing} />
+                  {audioLoading ? (
+                    <span className="icon-spinner" />
+                  ) : (
+                    <SpeakerIcon active={playing} />
+                  )}
                 </button>
               )}
               <button
@@ -238,6 +279,7 @@ export function PhraseResult({
         <PhraseCard
           text={source}
           audioUrl={data.sourceAudioDataUrl}
+          audioLoading={data.pronunciationLoading}
           playing={playing === 'source'}
           onPlay={onPlaySource}
           onCopy={onCopySource}
@@ -252,6 +294,7 @@ export function PhraseResult({
           text={translation}
           bold
           audioUrl={data.translationAudioDataUrl}
+          audioLoading={data.pronunciationLoading}
           playing={playing === 'translation'}
           onPlay={onPlayTranslation}
           onCopy={onCopyTranslation}
@@ -298,6 +341,10 @@ export default function App() {
     api.onTranslationResult((result) => {
       setState('success');
       setData(result);
+    });
+
+    api.onTranslationPronunciation((patch) => {
+      setData((prev) => (prev ? { ...prev, ...patch } : prev));
     });
 
     api.onTranslationError(({ message: msg }) => {

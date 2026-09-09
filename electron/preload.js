@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTranslationPronunciation: (callback) => {
     ipcRenderer.on('translation:pronunciation', (_event, data) => callback(data));
   },
+  onDictionaryPronunciation: (callback) => {
+    ipcRenderer.on('dictionary:pronunciation', (_event, data) => callback(data));
+  },
   closePopup: () => ipcRenderer.send('popup:close'),
   closeDictionary: () => ipcRenderer.send('dictionary:close'),
   dictionaryLookup: (text) => ipcRenderer.invoke('dictionary:lookup', text),

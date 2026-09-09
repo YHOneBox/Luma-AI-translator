@@ -163,6 +163,23 @@ export default function Settings({ onBack }) {
     setSettings(current);
   };
 
+  const saveLaunchAtStartup = async (enabled) => {
+    if (!settings) return;
+    const next = { ...settings, launchAtStartup: enabled };
+    setSettings(next);
+    try {
+      const saved = await window.electronAPI.saveSettings(next);
+      setSettings(saved);
+      setStatus(
+        enabled
+          ? t('settings.status.startupEnabled')
+          : t('settings.status.startupDisabled')
+      );
+    } catch (err) {
+      setStatus(err.message || t('settings.status.saveFailed'));
+    }
+  };
+
   const addApiKey = async () => {
     if (!newKeyValue.trim()) {
       setStatus(t('settings.status.enterApiKey'));
@@ -260,6 +277,17 @@ export default function Settings({ onBack }) {
               ))}
             </select>
             <small>{t('settings.appearance.uiLanguageHint')}</small>
+          </label>
+          <label className="toggle-field">
+            <input
+              type="checkbox"
+              checked={Boolean(settings.launchAtStartup)}
+              onChange={(e) => saveLaunchAtStartup(e.target.checked)}
+            />
+            <span className="toggle-copy">
+              <strong>{t('settings.appearance.launchAtStartup')}</strong>
+              <small>{t('settings.appearance.launchAtStartupHint')}</small>
+            </span>
           </label>
         </section>
 

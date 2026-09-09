@@ -351,6 +351,7 @@ Open **Settings** from the gear icon on the main window.
 |---------|-------------|
 | **API Keys** | Add, remove, and switch between Gemini API keys (stored locally) |
 | **App language** | Interface language (menus, buttons, settings). Chosen on first launch; changeable anytime |
+| **Start with computer** | Launch Luma in the tray when you sign in, so hotkeys are ready |
 | **Target language** | Language Gemini translates into (default: Chinese (Traditional)) |
 | **Replace language** | Language used when replacing selected text in place (default: English) |
 | **Primary model** | First Gemini model to try |

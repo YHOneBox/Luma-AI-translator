@@ -68,7 +68,9 @@
     },
     "appearance": {
       "uiLanguage": "App language",
-      "uiLanguageHint": "Language of menus, buttons, and settings in Luma."
+      "uiLanguageHint": "Language of menus, buttons, and settings in Luma.",
+      "launchAtStartup": "Start Luma when the computer starts",
+      "launchAtStartupHint": "Opens in the system tray so hotkeys are ready after you sign in."
     },
     "basic": {
       "targetLanguage": "Target language",
@@ -110,6 +112,8 @@
     "status": {
       "modelsFound": "Found {count} available model(s).",
       "saved": "Settings saved.",
+      "startupEnabled": "Luma will start when this computer starts.",
+      "startupDisabled": "Luma will no longer start automatically.",
       "reset": "Settings reset to defaults.",
       "hotkeySaved": "Hotkey saved.",
       "hotkeyReset": "Hotkey reset and saved.",

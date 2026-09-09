@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = {
   hotkeyGrammar: 'Alt+G',
   hotkeyDictionary: 'Alt+D',
   hotkeyAsk: 'Alt+A',
+  launchAtStartup: false,
   apiKeys: [],
   activeApiKeyId: null,
 };
@@ -132,6 +133,11 @@ function migrateSettings(settings) {
 
   if (migrated.activeApiKeyId === undefined) {
     migrated.activeApiKeyId = migrated.apiKeys[0]?.id || null;
+    changed = true;
+  }
+
+  if (typeof migrated.launchAtStartup !== 'boolean') {
+    migrated.launchAtStartup = DEFAULT_SETTINGS.launchAtStartup;
     changed = true;
   }
 

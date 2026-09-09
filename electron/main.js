@@ -27,6 +27,7 @@ const {
 } = require('electron');
 const { captureScreen } = require('./capture');
 const { translateScreenshot, translateText, translateForReplace, correctGrammarForReplace, chatAsk } = require('./gemini');
+const { applyLaunchAtStartup, shouldStartHidden } = require('./autostart');
 const { checkForUpdates, getChangelog, openReleasePage } = require('./updater');
 const { getSelectedText, replaceSelectedText } = require('./selection');
 const {
@@ -155,7 +156,7 @@ function createMainWindow() {
   mainWindow.loadURL(getPageUrl('main'));
 
   mainWindow.once('ready-to-show', () => {
-    if (!mainWindow.isDestroyed()) {
+    if (!mainWindow.isDestroyed() && !shouldStartHidden()) {
       mainWindow.show();
     }
   });
@@ -835,9 +836,12 @@ function setupIpc() {
   ipcMain.handle('settings:getDefaults', () => getDefaultSettings());
   ipcMain.handle('settings:save', (_event, updates) => {
     validateHotkeys({ ...loadSettings(), ...updates });
-    saveSettings(updates);
+    const saved = saveSettings(updates);
     if (updates?.uiLocale) {
       applyUiLocale(updates.uiLocale);
+    }
+    if (Object.prototype.hasOwnProperty.call(updates || {}, 'launchAtStartup')) {
+      applyLaunchAtStartup(saved.launchAtStartup);
     }
     registerHotkeys();
     return getPublicSettings();
@@ -845,6 +849,7 @@ function setupIpc() {
   ipcMain.handle('settings:reset', () => {
     const reset = resetSettings();
     applyUiLocale(reset.uiLocale);
+    applyLaunchAtStartup(reset.launchAtStartup);
     registerHotkeys();
     return getPublicSettings();
   });
@@ -920,6 +925,7 @@ app.whenReady().then(() => {
 
   const settings = loadSettings();
   applyUiLocale(settings.uiLocale);
+  applyLaunchAtStartup(settings.launchAtStartup);
 
   createTray();
   createMainWindow();

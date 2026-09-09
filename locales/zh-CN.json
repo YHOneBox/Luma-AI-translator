@@ -169,7 +169,8 @@
     "translationEmpty": "译文为空，无法进行替换。",
     "replaceFailed": "无法替换所选文本。",
     "grammarEmpty": "语法修正结果为空，无法进行替换。",
-    "grammarFailed": "无法修正所选文本。"
+    "grammarFailed": "无法修正所选文本。",
+    "stillRunning": "Luma 仍在托盘中运行。快捷键仍然有效。"
   },
   "progress": {
     "capturing": "正在截取屏幕…",

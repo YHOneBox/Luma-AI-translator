@@ -169,7 +169,8 @@
     "translationEmpty": "A tradução estava vazia, então nada pôde ser substituído.",
     "replaceFailed": "Não foi possível substituir o texto selecionado.",
     "grammarEmpty": "A correção gramatical estava vazia, então nada pôde ser substituído.",
-    "grammarFailed": "Não foi possível corrigir o texto selecionado."
+    "grammarFailed": "Não foi possível corrigir o texto selecionado.",
+    "stillRunning": "O Luma continua em execução na bandeja. Os atalhos permanecem ativos."
   },
   "progress": {
     "capturing": "Capturando a tela…",

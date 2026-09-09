@@ -169,7 +169,8 @@
     "translationEmpty": "La traducción estaba vacía, así que no se pudo reemplazar nada.",
     "replaceFailed": "No se pudo reemplazar el texto seleccionado.",
     "grammarEmpty": "La corrección gramatical estaba vacía, así que no se pudo reemplazar nada.",
-    "grammarFailed": "No se pudo corregir el texto seleccionado."
+    "grammarFailed": "No se pudo corregir el texto seleccionado.",
+    "stillRunning": "Luma sigue ejecutándose en la bandeja. Los atajos siguen activos."
   },
   "progress": {
     "capturing": "Capturando la pantalla…",

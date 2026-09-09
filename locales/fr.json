@@ -169,7 +169,8 @@
     "translationEmpty": "La traduction était vide, rien n’a pu être remplacé.",
     "replaceFailed": "Impossible de remplacer le texte sélectionné.",
     "grammarEmpty": "La correction grammaticale était vide, rien n’a pu être remplacé.",
-    "grammarFailed": "Impossible de corriger le texte sélectionné."
+    "grammarFailed": "Impossible de corriger le texte sélectionné.",
+    "stillRunning": "Luma continue de s'exécuter dans la barre d'état. Les raccourcis restent actifs."
   },
   "progress": {
     "capturing": "Capture de l’écran…",

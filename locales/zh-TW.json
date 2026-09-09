@@ -169,7 +169,8 @@
     "translationEmpty": "譯文為空，無法進行取代。",
     "replaceFailed": "無法取代所選文字。",
     "grammarEmpty": "文法修正結果為空，無法進行取代。",
-    "grammarFailed": "無法修正所選文字。"
+    "grammarFailed": "無法修正所選文字。",
+    "stillRunning": "Luma 仍在系統匣中執行。快捷鍵仍然有效。"
   },
   "progress": {
     "capturing": "正在擷取螢幕…",

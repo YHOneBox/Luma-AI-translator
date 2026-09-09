@@ -169,7 +169,8 @@
     "translationEmpty": "La traduzione era vuota, quindi non è stato possibile sostituire nulla.",
     "replaceFailed": "Impossibile sostituire il testo selezionato.",
     "grammarEmpty": "La correzione grammaticale era vuota, quindi non è stato possibile sostituire nulla.",
-    "grammarFailed": "Impossibile correggere il testo selezionato."
+    "grammarFailed": "Impossibile correggere il testo selezionato.",
+    "stillRunning": "Luma è ancora in esecuzione nella barra delle applicazioni. I tasti di scelta rapida restano attivi."
   },
   "progress": {
     "capturing": "Acquisizione dello schermo…",

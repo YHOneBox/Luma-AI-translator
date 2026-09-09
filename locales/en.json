@@ -230,7 +230,8 @@
     "translationEmpty": "Translation was empty, so nothing could be replaced.",
     "replaceFailed": "Could not replace the selected text.",
     "grammarEmpty": "Grammar correction was empty, so nothing could be replaced.",
-    "grammarFailed": "Could not correct the selected text."
+    "grammarFailed": "Could not correct the selected text.",
+    "stillRunning": "Luma is still running in the tray. Hotkeys stay active."
   },
   "progress": {
     "capturing": "Capturing screen...",

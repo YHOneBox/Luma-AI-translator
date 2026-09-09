@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.0.10",
+      "date": "2026-09-09",
+      "title": "Keep the main window open",
+      "items": [
+        "Hotkeys no longer close the settings window; it stays open after capture",
+        "Closing the window yourself keeps Luma in the tray, with a short reminder at the bottom of the screen"
+      ]
+    },
+    {
       "version": "1.0.9",
       "date": "2026-09-09",
       "title": "Faster results, startup & in-app updates",

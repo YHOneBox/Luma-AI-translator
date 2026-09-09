@@ -169,7 +169,8 @@
     "translationEmpty": "翻訳が空のため、置換できませんでした。",
     "replaceFailed": "選択テキストを置換できませんでした。",
     "grammarEmpty": "文法修正が空のため、置換できませんでした。",
-    "grammarFailed": "選択テキストを修正できませんでした。"
+    "grammarFailed": "選択テキストを修正できませんでした。",
+    "stillRunning": "Luma はトレイで引き続き実行中です。ホットキーはそのまま使えます。"
   },
   "progress": {
     "capturing": "画面をキャプチャ中…",

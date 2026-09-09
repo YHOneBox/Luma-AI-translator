@@ -169,7 +169,8 @@
     "translationEmpty": "Die Übersetzung war leer, daher konnte nichts ersetzt werden.",
     "replaceFailed": "Ausgewählter Text konnte nicht ersetzt werden.",
     "grammarEmpty": "Die Grammatikkorrektur war leer, daher konnte nichts ersetzt werden.",
-    "grammarFailed": "Ausgewählter Text konnte nicht korrigiert werden."
+    "grammarFailed": "Ausgewählter Text konnte nicht korrigiert werden.",
+    "stillRunning": "Luma läuft weiter im Infobereich. Tastenkürzel bleiben aktiv."
   },
   "progress": {
     "capturing": "Bildschirm wird erfasst…",

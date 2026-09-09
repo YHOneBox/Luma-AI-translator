@@ -167,6 +167,10 @@ function createMainWindow() {
     if (!appIsQuitting) {
       e.preventDefault();
       mainWindow.hide();
+      showStatusBar(t('statusBar.stillRunning'), {
+        variant: 'success',
+        autoCloseMs: 4500,
+      });
     }
   });
 
@@ -639,20 +643,33 @@ async function runWithPopup(task) {
 }
 
 async function startTranslation(region) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.hide();
-  }
   if (regionWindow && !regionWindow.isDestroyed()) {
     regionWindow.hide();
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  const mainWasVisible =
+    Boolean(mainWindow) && !mainWindow.isDestroyed() && mainWindow.isVisible();
 
-  await runWithPopup(async (sendProgress) => {
-    sendProgress(t('progress.capturing'));
-    const imageBuffer = await captureScreen(region);
-    return translateScreenshot(imageBuffer, sendProgress);
-  });
+  // Hide only while capturing so Luma is not in the screenshot, then restore.
+  if (!region && mainWasVisible) {
+    mainWindow.hide();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+
+  try {
+    await runWithPopup(async (sendProgress) => {
+      sendProgress(t('progress.capturing'));
+      const imageBuffer = await captureScreen(region);
+      if (mainWasVisible && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.showInactive();
+      }
+      return translateScreenshot(imageBuffer, sendProgress);
+    });
+  } finally {
+    if (mainWasVisible && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.showInactive();
+    }
+  }
 }
 
 async function startSelectionTranslation() {

@@ -213,22 +213,19 @@ async function downloadUpdateFile(info, onProgress) {
 }
 
 function writeWindowsApplyScript(targetPath, sourcePath) {
-  const scriptPath = path.join(app.getPath('temp'), 'luma-apply-update.cmd');
-  const body = `@echo off
-setlocal
-set "TARGET=${targetPath.replace(/"/g, '')}"
-set "SOURCE=${sourcePath.replace(/"/g, '')}"
-set "WAITPID=${process.pid}"
-:wait
-tasklist /FI "PID eq %WAITPID%" 2>nul | findstr /I /C:"%WAITPID%" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto wait
-)
-copy /Y "%SOURCE%" "%TARGET%" >nul
-if exist "%TARGET%" start "" "%TARGET%"
-del "%SOURCE%" >nul 2>&1
-del "%~f0" >nul 2>&1
+  const scriptPath = path.join(app.getPath('temp'), 'luma-apply-update.ps1');
+  const body = `$ErrorActionPreference = 'SilentlyContinue'
+$target = ${JSON.stringify(targetPath)}
+$source = ${JSON.stringify(sourcePath)}
+$waitPid = ${process.pid}
+while (Get-Process -Id $waitPid -ErrorAction SilentlyContinue) {
+  Start-Sleep -Seconds 1
+}
+Start-Sleep -Milliseconds 800
+Copy-Item -LiteralPath $source -Destination $target -Force
+Remove-Item -LiteralPath $source -Force
+Start-Process -FilePath $target
+Remove-Item -LiteralPath $PSCommandPath -Force
 `;
   fs.writeFileSync(scriptPath, body, 'utf8');
   return scriptPath;
@@ -263,11 +260,25 @@ function applyDownloadedUpdate(downloadedPath) {
 
   if (process.platform === 'win32') {
     const scriptPath = writeWindowsApplyScript(targetPath, downloadedPath);
-    spawn('cmd.exe', ['/c', scriptPath], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    }).unref();
+    spawn(
+      'powershell.exe',
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-WindowStyle',
+        'Hidden',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        scriptPath,
+      ],
+      {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      }
+    ).unref();
     return;
   }
 

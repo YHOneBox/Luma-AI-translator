@@ -839,7 +839,7 @@ function setupIpc() {
         sendToMainWindow('updates:progress', { ...progress, installing: true });
       });
       appIsQuitting = true;
-      setTimeout(() => app.quit(), 400);
+      setTimeout(() => app.exit(0), 300);
       return { restarting: true };
     } catch (err) {
       updateInstallInProgress = false;

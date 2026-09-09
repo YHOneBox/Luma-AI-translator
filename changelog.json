@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.0.9",
+      "date": "2026-09-09",
+      "title": "Faster results, startup & in-app updates",
+      "items": [
+        "Translation and Dictionary show text immediately while pronunciation loads in the background",
+        "Option to start Luma automatically when the computer starts",
+        "Checks GitHub Releases on startup and can install the update inside the app"
+      ]
+    },
+    {
       "version": "1.0.7",
       "date": "2026-09-07",
       "title": "Ask AI polish, markdown & update check",

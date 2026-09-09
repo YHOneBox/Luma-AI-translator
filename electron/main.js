@@ -28,7 +28,7 @@ const {
 const { captureScreen } = require('./capture');
 const { translateScreenshot, translateText, translateForReplace, correctGrammarForReplace, chatAsk } = require('./gemini');
 const { applyLaunchAtStartup, shouldStartHidden } = require('./autostart');
-const { checkForUpdates, getChangelog, openReleasePage } = require('./updater');
+const { checkForUpdates, downloadAndInstallUpdate, getChangelog, openReleasePage } = require('./updater');
 const { getSelectedText, replaceSelectedText } = require('./selection');
 const {
   loadSettings,
@@ -70,6 +70,8 @@ let statusBarCloseTimer = null;
 let appIsQuitting = false;
 let popupResultSeq = 0;
 let dictionaryResultSeq = 0;
+let latestUpdateInfo = null;
+let updateInstallInProgress = false;
 
 function getPageUrl(page) {
   const file = page === 'main' ? 'index' : page;
@@ -532,6 +534,25 @@ async function showStatusBar(message, options = {}) {
   }
 }
 
+function sendToMainWindow(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, data);
+  }
+}
+
+async function checkUpdatesOnStartup() {
+  if (!app.isPackaged) return;
+  try {
+    const info = await checkForUpdates();
+    latestUpdateInfo = info;
+    if (info.updateAvailable) {
+      sendToMainWindow('updates:available', info);
+    }
+  } catch (err) {
+    console.warn('Startup update check failed:', err.message);
+  }
+}
+
 function sendToPopup(channel, data) {
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.webContents.send(channel, data);
@@ -786,9 +807,43 @@ function setupIpc() {
   });
   ipcMain.handle('updates:check', async () => {
     try {
-      return await checkForUpdates();
+      const info = await checkForUpdates();
+      latestUpdateInfo = info;
+      if (info.updateAvailable) {
+        sendToMainWindow('updates:available', info);
+      }
+      return info;
     } catch (err) {
       return { error: err.message || t('updates.checkFailed') };
+    }
+  });
+  ipcMain.handle('updates:install', async () => {
+    if (updateInstallInProgress) {
+      return { error: t('updates.installing') };
+    }
+    try {
+      const info = latestUpdateInfo?.updateAvailable
+        ? latestUpdateInfo
+        : await checkForUpdates();
+      latestUpdateInfo = info;
+      if (!info.updateAvailable) {
+        return { error: t('updates.upToDate', { version: info.currentVersion }) };
+      }
+      if (!info.inAppInstallSupported) {
+        openReleasePage(info.downloadUrl || info.htmlUrl);
+        return { openedBrowser: true };
+      }
+      updateInstallInProgress = true;
+      sendToMainWindow('updates:progress', { percent: 0, installing: true });
+      await downloadAndInstallUpdate(info, (progress) => {
+        sendToMainWindow('updates:progress', { ...progress, installing: true });
+      });
+      appIsQuitting = true;
+      setTimeout(() => app.quit(), 400);
+      return { restarting: true };
+    } catch (err) {
+      updateInstallInProgress = false;
+      return { error: err.message || t('updates.installFailed') };
     }
   });
   ipcMain.handle('updates:open', (_event, url) => {
@@ -931,6 +986,9 @@ app.whenReady().then(() => {
   createMainWindow();
   registerHotkeys();
   setupIpc();
+  setTimeout(() => {
+    checkUpdatesOnStartup();
+  }, 4000);
 });
 
 app.on('will-quit', () => {

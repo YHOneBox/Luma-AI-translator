@@ -199,15 +199,21 @@
     "title": "Updates",
     "check": "Check for updates",
     "checking": "Checking…",
-    "hint": "Luma checks GitHub Releases for a newer portable build.",
+    "hint": "Luma checks for updates when it starts. You can install the new version inside the app — it replaces this copy and restarts. Settings stay in Luma-Data.",
     "current": "You are on v{version}.",
     "available": "Update available: v{version}",
     "upToDate": "You're up to date (v{version}).",
     "latest": "Latest: v{version}",
+    "install": "Install update",
+    "installing": "Installing update…",
+    "restarting": "Restarting Luma…",
+    "progress": "Downloading… {percent}%",
+    "bannerLater": "Later",
     "download": "Download update",
     "releasePage": "Open release page",
     "checkFailed": "Could not check for updates.",
-    "portableHint": "Download the new file, then close this app and run the new version. Your settings stay in Luma-Data."
+    "installFailed": "Could not install the update.",
+    "portableHint": "The app downloads the new portable file, replaces this one, and restarts. You do not need to visit GitHub."
   },
   "statusBar": {
     "working": "Working…",

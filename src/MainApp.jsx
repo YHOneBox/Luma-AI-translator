@@ -38,10 +38,26 @@ export default function MainApp() {
     ask: 'Alt + A',
   });
 
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateProgress, setUpdateProgress] = useState(null);
+
   useEffect(() => {
     window.electronAPI?.getAppVersion?.().then((v) => {
       if (v) setAppVersion(v);
     });
+  }, []);
+
+  useEffect(() => {
+    const unsubAvailable = window.electronAPI?.onUpdateAvailable?.((info) => {
+      setUpdateInfo(info);
+    });
+    const unsubProgress = window.electronAPI?.onUpdateProgress?.((progress) => {
+      setUpdateProgress(progress);
+    });
+    return () => {
+      unsubAvailable?.();
+      unsubProgress?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -85,6 +101,15 @@ export default function MainApp() {
 
   const showAsk = useCallback(() => {
     window.electronAPI?.showAsk();
+  }, []);
+
+  const installUpdate = useCallback(async () => {
+    setUpdateProgress({ percent: 0, installing: true });
+    const result = await window.electronAPI.installUpdate();
+    if (result?.error) {
+      setUpdateProgress(null);
+      setView('whats-new');
+    }
   }, []);
 
   if (needsOnboarding === null || !ready) {
@@ -143,6 +168,40 @@ export default function MainApp() {
       </header>
 
       <div className="main-scroll">
+        {updateInfo?.updateAvailable ? (
+          <div className="update-banner">
+            <div className="update-banner-copy">
+              <strong>{t('updates.available', { version: updateInfo.latestVersion })}</strong>
+              {updateProgress?.installing ? (
+                <p>
+                  {updateProgress.percent >= 100
+                    ? t('updates.restarting')
+                    : t('updates.progress', { percent: updateProgress.percent || 0 })}
+                </p>
+              ) : (
+                <p>{t('updates.portableHint')}</p>
+              )}
+            </div>
+            <div className="update-banner-actions">
+              <button
+                type="button"
+                className="btn-primary small"
+                onClick={installUpdate}
+                disabled={Boolean(updateProgress?.installing)}
+              >
+                {updateProgress?.installing ? t('updates.installing') : t('updates.install')}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary small"
+                onClick={() => setUpdateInfo(null)}
+                disabled={Boolean(updateProgress?.installing)}
+              >
+                {t('updates.bannerLater')}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <section className="action-group" aria-labelledby="group-capture">
           <h2 id="group-capture" className="action-group-title">
             {t('app.groups.capture')}

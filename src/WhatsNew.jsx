@@ -18,6 +18,9 @@ export default function WhatsNew({ onBack }) {
   const [updateInfo, setUpdateInfo] = useState(null);
   const [status, setStatus] = useState('');
 
+  const [installing, setInstalling] = useState(false);
+  const [progress, setProgress] = useState(null);
+
   useEffect(() => {
     window.electronAPI?.getChangelog?.().then((data) => {
       setEntries(Array.isArray(data?.entries) ? data.entries : []);
@@ -25,7 +28,19 @@ export default function WhatsNew({ onBack }) {
     window.electronAPI?.getAppVersion?.().then((v) => {
       if (v) setAppVersion(v);
     });
-  }, []);
+    const unsubAvailable = window.electronAPI?.onUpdateAvailable?.((info) => {
+      setUpdateInfo(info);
+      setStatus(t('updates.available', { version: info.latestVersion }));
+    });
+    const unsubProgress = window.electronAPI?.onUpdateProgress?.((next) => {
+      setProgress(next);
+      setInstalling(true);
+    });
+    return () => {
+      unsubAvailable?.();
+      unsubProgress?.();
+    };
+  }, [t]);
 
   const checkUpdates = useCallback(async () => {
     setChecking(true);
@@ -49,10 +64,22 @@ export default function WhatsNew({ onBack }) {
     }
   }, [t]);
 
-  const openDownload = async () => {
-    const url = updateInfo?.downloadUrl || updateInfo?.htmlUrl;
-    if (!url) return;
-    await window.electronAPI.openUpdatePage(url);
+  const installUpdate = async () => {
+    setInstalling(true);
+    setStatus(t('updates.installing'));
+    const result = await window.electronAPI.installUpdate();
+    if (result?.error) {
+      setInstalling(false);
+      setProgress(null);
+      setStatus(result.error);
+      return;
+    }
+    if (result?.openedBrowser) {
+      setInstalling(false);
+      setStatus(t('updates.download'));
+      return;
+    }
+    setStatus(t('updates.restarting'));
   };
 
   const openRelease = async () => {
@@ -101,14 +128,26 @@ export default function WhatsNew({ onBack }) {
                 </ul>
               ) : null}
               <div className="update-actions">
-                <button className="btn-primary small" onClick={openDownload}>
-                  {t('updates.download')}
+                <button
+                  className="btn-primary small"
+                  onClick={installUpdate}
+                  disabled={installing}
+                >
+                  {installing ? t('updates.installing') : t('updates.install')}
                 </button>
-                <button className="btn-secondary small" onClick={openRelease}>
+                <button className="btn-secondary small" onClick={openRelease} disabled={installing}>
                   {t('updates.releasePage')}
                 </button>
               </div>
-              <p className="settings-note">{t('updates.portableHint')}</p>
+              {progress?.installing ? (
+                <p className="settings-note">
+                  {progress.percent >= 100
+                    ? t('updates.restarting')
+                    : t('updates.progress', { percent: progress.percent || 0 })}
+                </p>
+              ) : (
+                <p className="settings-note">{t('updates.portableHint')}</p>
+              )}
             </div>
           ) : null}
         </section>

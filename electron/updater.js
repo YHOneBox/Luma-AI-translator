@@ -1,6 +1,7 @@
 const { app, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 
 const GITHUB_OWNER = 'YHOneBox';
 const GITHUB_REPO = 'Luma-ai-translator';
@@ -67,6 +68,40 @@ function pickDownloadAsset(assets = []) {
   );
 }
 
+function isDirectAssetUrl(url) {
+  return Boolean(url) && /github\.com\/.+\/releases\/download\//i.test(url);
+}
+
+function canInstallInApp(asset) {
+  if (!app.isPackaged || !isDirectAssetUrl(asset?.url)) return false;
+  if (process.platform === 'win32') {
+    return Boolean(
+      process.env.PORTABLE_EXECUTABLE_FILE ||
+        process.env.PORTABLE_EXECUTABLE_DIR ||
+        (process.execPath && process.execPath.toLowerCase().endsWith('.exe'))
+    );
+  }
+  if (process.platform === 'linux') {
+    return Boolean(process.env.APPIMAGE);
+  }
+  return false;
+}
+
+function getInstallTargetPath() {
+  if (process.platform === 'win32') {
+    return (
+      process.env.PORTABLE_EXECUTABLE_FILE ||
+      (process.env.PORTABLE_EXECUTABLE_DIR
+        ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, path.basename(process.execPath))
+        : process.execPath)
+    );
+  }
+  if (process.platform === 'linux' && process.env.APPIMAGE) {
+    return process.env.APPIMAGE;
+  }
+  return process.execPath;
+}
+
 function githubHeaders(currentVersion) {
   return {
     Accept: 'application/vnd.github+json',
@@ -102,6 +137,7 @@ function formatRelease(release, currentVersion) {
     htmlUrl: release.html_url || RELEASES_PAGE,
     downloadUrl: asset?.url || release.html_url || RELEASES_PAGE,
     downloadName: asset?.name || null,
+    inAppInstallSupported: canInstallInApp(asset),
   };
 }
 
@@ -133,6 +169,125 @@ async function checkForUpdates() {
   throw new Error(`Could not check for updates (HTTP ${latest.response.status}).`);
 }
 
+async function downloadUpdateFile(info, onProgress) {
+  if (!isDirectAssetUrl(info?.downloadUrl)) {
+    throw new Error('No update file is available to install inside the app.');
+  }
+
+  const fileName = info.downloadName || `Luma-${info.latestVersion}-update`;
+  const dest = path.join(app.getPath('temp'), fileName);
+  const currentVersion = info.currentVersion || app.getVersion();
+
+  const response = await fetch(info.downloadUrl, {
+    headers: {
+      Accept: 'application/octet-stream',
+      'User-Agent': `Luma/${currentVersion}`,
+    },
+    redirect: 'follow',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not download update (HTTP ${response.status}).`);
+  }
+
+  const total = Number(response.headers.get('content-length')) || 0;
+  const chunks = [];
+  let received = 0;
+  const reader = response.body.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(Buffer.from(value));
+    received += value.length;
+    onProgress?.({
+      received,
+      total,
+      percent: total ? Math.min(99, Math.round((received / total) * 100)) : 0,
+    });
+  }
+
+  fs.writeFileSync(dest, Buffer.concat(chunks));
+  onProgress?.({ received, total: total || received, percent: 100 });
+  return dest;
+}
+
+function writeWindowsApplyScript(targetPath, sourcePath) {
+  const scriptPath = path.join(app.getPath('temp'), 'luma-apply-update.cmd');
+  const body = `@echo off
+setlocal
+set "TARGET=${targetPath.replace(/"/g, '')}"
+set "SOURCE=${sourcePath.replace(/"/g, '')}"
+set "WAITPID=${process.pid}"
+:wait
+tasklist /FI "PID eq %WAITPID%" 2>nul | findstr /I /C:"%WAITPID%" >nul
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto wait
+)
+copy /Y "%SOURCE%" "%TARGET%" >nul
+if exist "%TARGET%" start "" "%TARGET%"
+del "%SOURCE%" >nul 2>&1
+del "%~f0" >nul 2>&1
+`;
+  fs.writeFileSync(scriptPath, body, 'utf8');
+  return scriptPath;
+}
+
+function writeLinuxApplyScript(targetPath, sourcePath) {
+  const scriptPath = path.join(app.getPath('temp'), 'luma-apply-update.sh');
+  const body = `#!/bin/bash
+TARGET=${JSON.stringify(targetPath)}
+SOURCE=${JSON.stringify(sourcePath)}
+WAITPID=${process.pid}
+while kill -0 "$WAITPID" 2>/dev/null; do sleep 1; done
+chmod +x "$SOURCE"
+mv -f "$SOURCE" "$TARGET"
+nohup "$TARGET" >/dev/null 2>&1 &
+rm -f "$0"
+`;
+  fs.writeFileSync(scriptPath, body, 'utf8');
+  fs.chmodSync(scriptPath, 0o755);
+  return scriptPath;
+}
+
+function applyDownloadedUpdate(downloadedPath) {
+  if (!app.isPackaged) {
+    throw new Error('In-app install only works in the packaged Luma app.');
+  }
+
+  const targetPath = getInstallTargetPath();
+  if (!targetPath) {
+    throw new Error('Could not find the current app file to replace.');
+  }
+
+  if (process.platform === 'win32') {
+    const scriptPath = writeWindowsApplyScript(targetPath, downloadedPath);
+    spawn('cmd.exe', ['/c', scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    }).unref();
+    return;
+  }
+
+  if (process.platform === 'linux') {
+    const scriptPath = writeLinuxApplyScript(targetPath, downloadedPath);
+    spawn('bash', [scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+    return;
+  }
+
+  throw new Error('In-app install is not supported on this platform yet.');
+}
+
+async function downloadAndInstallUpdate(info, onProgress) {
+  const filePath = await downloadUpdateFile(info, onProgress);
+  applyDownloadedUpdate(filePath);
+}
+
 function getChangelog() {
   const candidates = [
     path.join(__dirname, '..', 'changelog.json'),
@@ -162,6 +317,7 @@ function openReleasePage(url) {
 
 module.exports = {
   checkForUpdates,
+  downloadAndInstallUpdate,
   getChangelog,
   openReleasePage,
   isNewerVersion,

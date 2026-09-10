@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.0.11",
+      "date": "2026-09-10",
+      "title": "Fix in-app update install",
+      "items": [
+        "Installing an update now replaces the portable file and restarts Luma after download finishes"
+      ]
+    },
+    {
       "version": "1.0.10",
       "date": "2026-09-09",
       "title": "Keep the main window open",

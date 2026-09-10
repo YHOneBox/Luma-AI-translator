@@ -133,6 +133,26 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
+function quitForUpdate() {
+  appIsQuitting = true;
+  try {
+    if (tray) {
+      tray.destroy();
+      tray = null;
+    }
+  } catch {
+    // ignore
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      win.destroy();
+    } catch {
+      // ignore
+    }
+  }
+  setTimeout(() => app.exit(0), 1200);
+}
+
 function createMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     return mainWindow;
@@ -855,8 +875,7 @@ function setupIpc() {
       await downloadAndInstallUpdate(info, (progress) => {
         sendToMainWindow('updates:progress', { ...progress, installing: true });
       });
-      appIsQuitting = true;
-      setTimeout(() => app.exit(0), 300);
+      quitForUpdate();
       return { restarting: true };
     } catch (err) {
       updateInstallInProgress = false;

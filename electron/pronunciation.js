@@ -11,7 +11,7 @@ function httpGetBuffer(url, redirectCount = 0) {
       url,
       {
         headers: {
-          'User-Agent': 'Luma/1.0.10 (Electron)',
+          'User-Agent': 'Luma/1.0.11 (Electron)',
           Accept: '*/*',
         },
         timeout: REQUEST_TIMEOUT_MS,

@@ -1,7 +1,7 @@
 const { app, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const GITHUB_OWNER = 'YHOneBox';
 const GITHUB_REPO = 'Luma-ai-translator';
@@ -75,11 +75,7 @@ function isDirectAssetUrl(url) {
 function canInstallInApp(asset) {
   if (!app.isPackaged || !isDirectAssetUrl(asset?.url)) return false;
   if (process.platform === 'win32') {
-    return Boolean(
-      process.env.PORTABLE_EXECUTABLE_FILE ||
-        process.env.PORTABLE_EXECUTABLE_DIR ||
-        (process.execPath && process.execPath.toLowerCase().endsWith('.exe'))
-    );
+    return Boolean(getWindowsPortablePath());
   }
   if (process.platform === 'linux') {
     return Boolean(process.env.APPIMAGE);
@@ -87,19 +83,82 @@ function canInstallInApp(asset) {
   return false;
 }
 
+function getWindowsPortablePath() {
+  const envFile = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (envFile && fs.existsSync(envFile)) {
+    return envFile;
+  }
+
+  const dir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (!dir || !fs.existsSync(dir)) {
+    return null;
+  }
+
+  try {
+    const names = fs.readdirSync(dir).filter((name) => /luma.*\.exe$/i.test(name));
+    const portable = names.filter((name) => /portable\.exe$/i.test(name));
+    const pool = portable.length > 0 ? portable : names;
+    if (pool.length === 1) {
+      return path.join(dir, pool[0]);
+    }
+    if (pool.length > 1) {
+      const currentName = `Luma-${app.getVersion()}-win-Portable.exe`.toLowerCase();
+      const current = pool.find((name) => name.toLowerCase() === currentName);
+      if (current) return path.join(dir, current);
+      const newest = pool
+        .map((name) => ({ name, mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime)[0];
+      return path.join(dir, newest.name);
+    }
+  } catch {
+    // fall through
+  }
+
+  const appFile = process.env.PORTABLE_EXECUTABLE_APP_FILENAME;
+  if (appFile) {
+    const candidate = path.join(dir, `${appFile}.exe`);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
 function getInstallTargetPath() {
   if (process.platform === 'win32') {
-    return (
-      process.env.PORTABLE_EXECUTABLE_FILE ||
-      (process.env.PORTABLE_EXECUTABLE_DIR
-        ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, path.basename(process.execPath))
-        : process.execPath)
-    );
+    return getWindowsPortablePath();
   }
   if (process.platform === 'linux' && process.env.APPIMAGE) {
     return process.env.APPIMAGE;
   }
-  return process.execPath;
+  return null;
+}
+
+function getReplacePath(currentPath, downloadName) {
+  const dir = path.dirname(currentPath);
+  const name = downloadName ? path.basename(String(downloadName)) : '';
+  if (name && /\.(exe|appimage)$/i.test(name) && !name.includes('..') && !path.isAbsolute(name)) {
+    return path.join(dir, name);
+  }
+  return currentPath;
+}
+
+function assertUpdateFileLooksValid(filePath) {
+  const size = fs.statSync(filePath).size;
+  if (size < 5 * 1024 * 1024) {
+    throw new Error('Downloaded update file is too small to be a Luma build.');
+  }
+
+  const header = Buffer.alloc(4);
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    fs.readSync(fd, header, 0, 4, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  if (process.platform === 'win32' && header.slice(0, 2).toString('ascii') !== 'MZ') {
+    throw new Error('Downloaded update was not a Windows executable.');
+  }
 }
 
 function githubHeaders(currentVersion) {
@@ -208,27 +267,75 @@ async function downloadUpdateFile(info, onProgress) {
   }
 
   fs.writeFileSync(dest, Buffer.concat(chunks));
+  assertUpdateFileLooksValid(dest);
   onProgress?.({ received, total: total || received, percent: 100 });
   return dest;
 }
 
-function writeWindowsApplyScript(targetPath, sourcePath) {
+function writeWindowsApplyScript(replacePath, sourcePath, oldPath) {
   const scriptPath = path.join(app.getPath('temp'), 'luma-apply-update.ps1');
-  const body = `$ErrorActionPreference = 'SilentlyContinue'
-$target = ${JSON.stringify(targetPath)}
+  const body = `$ErrorActionPreference = 'Continue'
+$replace = ${JSON.stringify(replacePath)}
 $source = ${JSON.stringify(sourcePath)}
+$old = ${JSON.stringify(oldPath)}
 $waitPid = ${process.pid}
-while (Get-Process -Id $waitPid -ErrorAction SilentlyContinue) {
-  Start-Sleep -Seconds 1
+$log = Join-Path $env:TEMP 'luma-update.log'
+function Log($m) { "$(Get-Date -Format o) $m" | Out-File -FilePath $log -Append -Encoding utf8 }
+Log "waiting for pid $waitPid"
+$deadline = (Get-Date).AddSeconds(45)
+while ((Get-Date) -lt $deadline -and (Get-Process -Id $waitPid -ErrorAction SilentlyContinue)) {
+  Start-Sleep -Milliseconds 400
+}
+if (Get-Process -Id $waitPid -ErrorAction SilentlyContinue) {
+  Log "force-stopping pid $waitPid"
+  Stop-Process -Id $waitPid -Force -ErrorAction SilentlyContinue
 }
 Start-Sleep -Milliseconds 800
-Copy-Item -LiteralPath $source -Destination $target -Force
-Remove-Item -LiteralPath $source -Force
-Start-Process -FilePath $target
-Remove-Item -LiteralPath $PSCommandPath -Force
+$copied = $false
+for ($i = 1; $i -le 20; $i++) {
+  try {
+    Copy-Item -LiteralPath $source -Destination $replace -Force -ErrorAction Stop
+    $copied = $true
+    Log "copied on try $i"
+    break
+  } catch {
+    Log "copy try $i failed: $($_.Exception.Message)"
+    Start-Sleep -Milliseconds 500
+  }
+}
+if (-not $copied) {
+  Log "copy failed"
+  exit 1
+}
+Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
+if ($old -and ($old.ToLower() -ne $replace.ToLower()) -and (Test-Path -LiteralPath $old)) {
+  Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+}
+Log "starting $replace"
+Start-Process -FilePath $replace
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 `;
   fs.writeFileSync(scriptPath, body, 'utf8');
   return scriptPath;
+}
+
+function launchWindowsApplyScript(scriptPath) {
+  // Electron runs in a Windows Job that kills children on exit.
+  // `cmd /c start` breaks the helper out of that job so copy+restart can finish.
+  const helperCmd = path.join(app.getPath('temp'), 'luma-apply-update.cmd');
+  const cmdBody = `@echo off\r
+start "" /min powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${scriptPath}"\r
+`;
+  fs.writeFileSync(helperCmd, cmdBody, 'utf8');
+
+  const result = spawnSync(
+    process.env.ComSpec || 'cmd.exe',
+    ['/c', `start "" /min "${helperCmd}"`],
+    { windowsHide: true, timeout: 8000, cwd: app.getPath('temp') }
+  );
+  if (result.error) {
+    throw result.error;
+  }
 }
 
 function writeLinuxApplyScript(targetPath, sourcePath) {
@@ -248,42 +355,26 @@ rm -f "$0"
   return scriptPath;
 }
 
-function applyDownloadedUpdate(downloadedPath) {
+function applyDownloadedUpdate(downloadedPath, info) {
   if (!app.isPackaged) {
     throw new Error('In-app install only works in the packaged Luma app.');
   }
 
-  const targetPath = getInstallTargetPath();
-  if (!targetPath) {
+  const currentPath = getInstallTargetPath();
+  if (!currentPath) {
     throw new Error('Could not find the current app file to replace.');
   }
 
+  const replacePath = getReplacePath(currentPath, info?.downloadName);
+
   if (process.platform === 'win32') {
-    const scriptPath = writeWindowsApplyScript(targetPath, downloadedPath);
-    spawn(
-      'powershell.exe',
-      [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-WindowStyle',
-        'Hidden',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        scriptPath,
-      ],
-      {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      }
-    ).unref();
+    const scriptPath = writeWindowsApplyScript(replacePath, downloadedPath, currentPath);
+    launchWindowsApplyScript(scriptPath);
     return;
   }
 
   if (process.platform === 'linux') {
-    const scriptPath = writeLinuxApplyScript(targetPath, downloadedPath);
+    const scriptPath = writeLinuxApplyScript(replacePath, downloadedPath);
     spawn('bash', [scriptPath], {
       detached: true,
       stdio: 'ignore',
@@ -296,7 +387,10 @@ function applyDownloadedUpdate(downloadedPath) {
 
 async function downloadAndInstallUpdate(info, onProgress) {
   const filePath = await downloadUpdateFile(info, onProgress);
-  applyDownloadedUpdate(filePath);
+  applyDownloadedUpdate(filePath, info);
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  }
 }
 
 function getChangelog() {

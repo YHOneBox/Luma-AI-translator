@@ -15,6 +15,7 @@ export default function Settings({ onBack }) {
   const [newKeyValue, setNewKeyValue] = useState('');
   const [addingKey, setAddingKey] = useState(false);
   const [showAddKeyForm, setShowAddKeyForm] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const load = useCallback(async () => {
     const api = window.electronAPI;
@@ -31,6 +32,15 @@ export default function Settings({ onBack }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!confirmReset) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setConfirmReset(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmReset]);
 
   const updateField = (key, value) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -97,6 +107,7 @@ export default function Settings({ onBack }) {
   const resetAll = async () => {
     const reset = await window.electronAPI.resetSettings();
     setSettings(reset);
+    setConfirmReset(false);
     if (reset.uiLocale) {
       await setLocale(reset.uiLocale, { markChosen: true });
     }
@@ -583,16 +594,43 @@ export default function Settings({ onBack }) {
       </div>
 
       <footer className="settings-footer">
-        {status && <p className="settings-status">{status}</p>}
+        {status ? <p className="settings-status">{status}</p> : null}
         <div className="settings-actions">
-          <button className="btn-secondary" onClick={resetAll}>
+          <button type="button" className="btn-secondary small" onClick={() => setConfirmReset(true)}>
             {t('settings.actions.resetAll')}
           </button>
-          <button className="btn-primary" onClick={save} disabled={saving}>
+          <button type="button" className="btn-primary" onClick={save} disabled={saving}>
             {saving ? t('settings.actions.saving') : t('settings.actions.save')}
           </button>
         </div>
       </footer>
+
+      {confirmReset ? (
+        <div
+          className="settings-confirm-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-reset-title"
+          onClick={() => setConfirmReset(false)}
+        >
+          <div className="settings-confirm" onClick={(event) => event.stopPropagation()}>
+            <h3 id="settings-reset-title">{t('settings.actions.resetConfirmTitle')}</h3>
+            <p>{t('settings.actions.resetConfirm')}</p>
+            <div className="settings-confirm-actions">
+              <button
+                type="button"
+                className="btn-secondary small"
+                onClick={() => setConfirmReset(false)}
+              >
+                {t('settings.actions.resetConfirmCancel')}
+              </button>
+              <button type="button" className="btn-primary small" onClick={resetAll}>
+                {t('settings.actions.resetConfirmOk')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

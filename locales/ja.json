@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "すべてリセット",
       "save": "設定を保存",
-      "saving": "保存中…"
+      "saving": "保存中…",
+      "resetConfirmTitle": "すべての設定をリセットしますか？",
+      "resetConfirm": "ショートカット、言語、モデルなどの設定がデフォルトに戻ります。API キーは保持されます。",
+      "resetConfirmOk": "リセット",
+      "resetConfirmCancel": "キャンセル"
     },
     "status": {
       "modelsFound": "利用可能なモデルが {count} 件見つかりました。",

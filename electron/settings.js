@@ -26,9 +26,9 @@ const DEFAULT_SETTINGS = {
   replaceLanguage: 'English',
   uiLocale: 'en',
   hasChosenUiLocale: false,
-  hotkeyScreen: 'Alt+T',
+  hotkeyScreen: 'Alt+S',
   hotkeyRegion: 'Alt+C',
-  hotkeySelection: 'Alt+X',
+  hotkeySelection: 'Alt+T',
   hotkeyReplace: 'Alt+R',
   hotkeyGrammar: 'Alt+G',
   hotkeyDictionary: 'Alt+D',
@@ -38,11 +38,11 @@ const DEFAULT_SETTINGS = {
   activeApiKeyId: null,
 };
 
-/** Previous defaults — upgrade silent installs that never customized hotkeys. */
-const LEGACY_DEFAULT_HOTKEYS = {
-  hotkeyScreen: 'CommandOrControl+Shift+T',
-  hotkeyRegion: 'CommandOrControl+Shift+R',
-  hotkeySelection: 'CommandOrControl+Shift+S',
+/** Previous defaults — upgrade installs that never customized these hotkeys. */
+const LEGACY_HOTKEY_VALUES = {
+  hotkeyScreen: ['CommandOrControl+Shift+T', 'Alt+T'],
+  hotkeyRegion: ['CommandOrControl+Shift+R'],
+  hotkeySelection: ['CommandOrControl+Shift+S', 'Alt+X'],
 };
 
 const LEGACY_DEFAULT_PRIMARY_MODELS = new Set(['gemini-3.6-flash']);
@@ -104,10 +104,7 @@ function migrateSettings(settings) {
     if (!migrated[key]) {
       migrated[key] = DEFAULT_SETTINGS[key];
       changed = true;
-    } else if (
-      LEGACY_DEFAULT_HOTKEYS[key] &&
-      migrated[key] === LEGACY_DEFAULT_HOTKEYS[key]
-    ) {
+    } else if ((LEGACY_HOTKEY_VALUES[key] || []).includes(migrated[key])) {
       migrated[key] = DEFAULT_SETTINGS[key];
       changed = true;
     }

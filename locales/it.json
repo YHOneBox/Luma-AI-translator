@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "Reimposta tutto",
       "save": "Salva impostazioni",
-      "saving": "Salvataggio…"
+      "saving": "Salvataggio…",
+      "resetConfirmTitle": "Reimpostare tutte le impostazioni?",
+      "resetConfirm": "Scorciatoie, lingue, modelli e altre impostazioni torneranno ai valori predefiniti. Le chiavi API vengono conservate.",
+      "resetConfirmOk": "Reimposta",
+      "resetConfirmCancel": "Annulla"
     },
     "status": {
       "modelsFound": "Trovati {count} modello/i disponibile/i.",

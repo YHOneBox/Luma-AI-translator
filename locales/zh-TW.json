@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "全部重設",
       "save": "儲存設定",
-      "saving": "正在儲存…"
+      "saving": "正在儲存…",
+      "resetConfirmTitle": "要重設全部設定嗎？",
+      "resetConfirm": "快捷鍵、語言、模型和其他設定將恢復為預設值。API 金鑰會保留。",
+      "resetConfirmOk": "重設",
+      "resetConfirmCancel": "取消"
     },
     "status": {
       "modelsFound": "找到 {count} 個可用模型。",

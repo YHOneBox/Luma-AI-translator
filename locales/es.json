@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "Restablecer todo",
       "save": "Guardar ajustes",
-      "saving": "Guardando…"
+      "saving": "Guardando…",
+      "resetConfirmTitle": "¿Restablecer todos los ajustes?",
+      "resetConfirm": "Los atajos, idiomas, modelos y demás ajustes volverán a los valores predeterminados. Se conservan las claves de API.",
+      "resetConfirmOk": "Restablecer",
+      "resetConfirmCancel": "Cancelar"
     },
     "status": {
       "modelsFound": "Se encontraron {count} modelo(s) disponible(s).",

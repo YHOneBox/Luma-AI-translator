@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "Alles zurücksetzen",
       "save": "Einstellungen speichern",
-      "saving": "Wird gespeichert…"
+      "saving": "Wird gespeichert…",
+      "resetConfirmTitle": "Alle Einstellungen zurücksetzen?",
+      "resetConfirm": "Tastenkürzel, Sprachen, Modelle und andere Einstellungen werden auf die Standardwerte zurückgesetzt. API-Schlüssel bleiben erhalten.",
+      "resetConfirmOk": "Zurücksetzen",
+      "resetConfirmCancel": "Abbrechen"
     },
     "status": {
       "modelsFound": "{count} verfügbare(s) Modell(e) gefunden.",

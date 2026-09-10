@@ -107,7 +107,11 @@
     "actions": {
       "resetAll": "Reset All",
       "save": "Save Settings",
-      "saving": "Saving..."
+      "saving": "Saving...",
+      "resetConfirmTitle": "Reset all settings?",
+      "resetConfirm": "Hotkeys, languages, models, and other settings will return to defaults. Your API keys are kept.",
+      "resetConfirmOk": "Reset",
+      "resetConfirmCancel": "Cancel"
     },
     "status": {
       "modelsFound": "Found {count} available model(s).",

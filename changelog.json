@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.0.12",
+      "date": "2026-09-10",
+      "title": "Hotkeys and settings scrollbar",
+      "items": [
+        "Default hotkeys: Translate Screen is Alt+S, Translate Selection is Alt+T, Replace Selection stays Alt+R",
+        "Settings and What's New scrollbars sit on the right edge, matching the home page"
+      ]
+    },
+    {
       "version": "1.0.11",
       "date": "2026-09-10",
       "title": "Fix in-app update install",

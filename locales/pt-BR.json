@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "Redefinir tudo",
       "save": "Salvar configurações",
-      "saving": "Salvando…"
+      "saving": "Salvando…",
+      "resetConfirmTitle": "Redefinir todas as configurações?",
+      "resetConfirm": "Atalhos, idiomas, modelos e outras configurações voltarão ao padrão. As chaves de API são mantidas.",
+      "resetConfirmOk": "Redefinir",
+      "resetConfirmCancel": "Cancelar"
     },
     "status": {
       "modelsFound": "{count} modelo(s) disponível(is) encontrado(s).",

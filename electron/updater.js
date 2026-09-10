@@ -272,45 +272,68 @@ async function downloadUpdateFile(info, onProgress) {
   return dest;
 }
 
+function tryCopyUpdateFile(sourcePath, destPath) {
+  fs.copyFileSync(sourcePath, destPath);
+}
+
 function writeWindowsApplyScript(replacePath, sourcePath, oldPath) {
   const scriptPath = path.join(app.getPath('temp'), 'luma-apply-update.ps1');
+  const taskkill = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
   const body = `$ErrorActionPreference = 'Continue'
 $replace = ${JSON.stringify(replacePath)}
 $source = ${JSON.stringify(sourcePath)}
 $old = ${JSON.stringify(oldPath)}
 $waitPid = ${process.pid}
+$taskkill = ${JSON.stringify(taskkill)}
 $log = Join-Path $env:TEMP 'luma-update.log'
 function Log($m) { "$(Get-Date -Format o) $m" | Out-File -FilePath $log -Append -Encoding utf8 }
-Log "waiting for pid $waitPid"
-$deadline = (Get-Date).AddSeconds(45)
-while ((Get-Date) -lt $deadline -and (Get-Process -Id $waitPid -ErrorAction SilentlyContinue)) {
-  Start-Sleep -Milliseconds 400
+Log "helper start pid=$waitPid replace=$replace"
+
+try {
+  Copy-Item -LiteralPath $source -Destination $replace -Force -ErrorAction Stop
+  Log "copied before kill"
+} catch {
+  Log "copy before kill failed: $($_.Exception.Message)"
 }
-if (Get-Process -Id $waitPid -ErrorAction SilentlyContinue) {
-  Log "force-stopping pid $waitPid"
+
+Start-Sleep -Milliseconds 1200
+Log "taskkill /F /T /PID $waitPid"
+if (Test-Path -LiteralPath $taskkill) {
+  & $taskkill /F /T /PID $waitPid | Out-Null
+} else {
   Stop-Process -Id $waitPid -Force -ErrorAction SilentlyContinue
 }
-Start-Sleep -Milliseconds 800
-$copied = $false
-for ($i = 1; $i -le 20; $i++) {
-  try {
-    Copy-Item -LiteralPath $source -Destination $replace -Force -ErrorAction Stop
-    $copied = $true
-    Log "copied on try $i"
-    break
-  } catch {
-    Log "copy try $i failed: $($_.Exception.Message)"
-    Start-Sleep -Milliseconds 500
+
+$deadline = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $deadline -and (Get-Process -Id $waitPid -ErrorAction SilentlyContinue)) {
+  Start-Sleep -Milliseconds 250
+}
+
+$copied = Test-Path -LiteralPath $replace
+if (-not $copied -or ((Get-Item -LiteralPath $replace).Length -lt 5MB)) {
+  for ($i = 1; $i -le 20; $i++) {
+    try {
+      Copy-Item -LiteralPath $source -Destination $replace -Force -ErrorAction Stop
+      $copied = $true
+      Log "copied on try $i"
+      break
+    } catch {
+      Log "copy try $i failed: $($_.Exception.Message)"
+      Start-Sleep -Milliseconds 400
+    }
   }
 }
-if (-not $copied) {
+
+if (-not (Test-Path -LiteralPath $replace)) {
   Log "copy failed"
   exit 1
 }
+
 Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
 if ($old -and ($old.ToLower() -ne $replace.ToLower()) -and (Test-Path -LiteralPath $old)) {
   Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
 }
+
 Log "starting $replace"
 Start-Process -FilePath $replace
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
@@ -320,22 +343,27 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
 
 function launchWindowsApplyScript(scriptPath) {
-  // Electron runs in a Windows Job that kills children on exit.
-  // `cmd /c start` breaks the helper out of that job so copy+restart can finish.
   const helperCmd = path.join(app.getPath('temp'), 'luma-apply-update.cmd');
   const cmdBody = `@echo off\r
-start "" /min powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${scriptPath}"\r
+powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${scriptPath}"\r
 `;
   fs.writeFileSync(helperCmd, cmdBody, 'utf8');
 
-  const result = spawnSync(
-    process.env.ComSpec || 'cmd.exe',
-    ['/c', `start "" /min "${helperCmd}"`],
-    { windowsHide: true, timeout: 8000, cwd: app.getPath('temp') }
-  );
-  if (result.error) {
-    throw result.error;
+  // Hand the .cmd to the already-running Explorer so it is not in Electron's job.
+  // Killing Luma then cannot take the helper down with it.
+  const explorer = path.join(process.env.SystemRoot || 'C:\\Windows', 'explorer.exe');
+  const viaExplorer = spawnSync(explorer, [helperCmd], { timeout: 8000, windowsHide: false });
+  if (!viaExplorer.error) {
+    return;
   }
+
+  spawnSync(
+    process.env.ComSpec || 'cmd.exe',
+    ['/c', 'start', '""', '/min', helperCmd],
+    { windowsHide: false, timeout: 8000, cwd: app.getPath('temp') }
+  );
+
+  void shell.openPath(helperCmd);
 }
 
 function writeLinuxApplyScript(targetPath, sourcePath) {
@@ -368,6 +396,11 @@ function applyDownloadedUpdate(downloadedPath, info) {
   const replacePath = getReplacePath(currentPath, info?.downloadName);
 
   if (process.platform === 'win32') {
+    try {
+      tryCopyUpdateFile(downloadedPath, replacePath);
+    } catch {
+      // Helper retries after the running process is killed.
+    }
     const scriptPath = writeWindowsApplyScript(replacePath, downloadedPath, currentPath);
     launchWindowsApplyScript(scriptPath);
     return;

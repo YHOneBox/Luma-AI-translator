@@ -143,14 +143,10 @@ function quitForUpdate() {
   } catch {
     // ignore
   }
-  for (const win of BrowserWindow.getAllWindows()) {
-    try {
-      win.destroy();
-    } catch {
-      // ignore
-    }
-  }
-  setTimeout(() => app.exit(0), 1200);
+  // Do not destroy BrowserWindows here. Doing that inside an IPC handler
+  // deadlocks Chromium ("app is not responding") and the update never applies.
+  app.exit(0);
+  setTimeout(() => process.exit(0), 400);
 }
 
 function createMainWindow() {
@@ -875,7 +871,9 @@ function setupIpc() {
       await downloadAndInstallUpdate(info, (progress) => {
         sendToMainWindow('updates:progress', { ...progress, installing: true });
       });
-      quitForUpdate();
+      setImmediate(() => {
+        setTimeout(() => quitForUpdate(), 400);
+      });
       return { restarting: true };
     } catch (err) {
       updateInstallInProgress = false;

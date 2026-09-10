@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.0.13",
+      "date": "2026-09-10",
+      "title": "In-app update actually restarts",
+      "items": [
+        "Installing an update no longer freezes Luma on Restart; the new portable file is written and the app relaunches"
+      ]
+    },
+    {
       "version": "1.0.12",
       "date": "2026-09-10",
       "title": "Hotkeys and settings scrollbar",

@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "全部重置",
       "save": "保存设置",
-      "saving": "正在保存…"
+      "saving": "正在保存…",
+      "resetConfirmTitle": "要重置全部设置吗？",
+      "resetConfirm": "快捷键、语言、模型和其他设置将恢复为默认值。API 密钥会保留。",
+      "resetConfirmOk": "重置",
+      "resetConfirmCancel": "取消"
     },
     "status": {
       "modelsFound": "找到 {count} 个可用模型。",

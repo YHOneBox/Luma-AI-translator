@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "모두 초기화",
       "save": "설정 저장",
-      "saving": "저장 중…"
+      "saving": "저장 중…",
+      "resetConfirmTitle": "모든 설정을 초기화할까요?",
+      "resetConfirm": "단축키, 언어, 모델 및 기타 설정이 기본값으로 돌아갑니다. API 키는 유지됩니다.",
+      "resetConfirmOk": "초기화",
+      "resetConfirmCancel": "취소"
     },
     "status": {
       "modelsFound": "사용 가능한 모델 {count}개를 찾았습니다.",

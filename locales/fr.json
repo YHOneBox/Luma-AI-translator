@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "Tout réinitialiser",
       "save": "Enregistrer les paramètres",
-      "saving": "Enregistrement…"
+      "saving": "Enregistrement…",
+      "resetConfirmTitle": "Réinitialiser tous les paramètres ?",
+      "resetConfirm": "Les raccourcis, langues, modèles et autres paramètres reviendront aux valeurs par défaut. Vos clés API sont conservées.",
+      "resetConfirmOk": "Réinitialiser",
+      "resetConfirmCancel": "Annuler"
     },
     "status": {
       "modelsFound": "{count} modèle(s) disponible(s) trouvé(s).",

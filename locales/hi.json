@@ -94,7 +94,11 @@
     "actions": {
       "resetAll": "सभी रीसेट करें",
       "save": "सेटिंग्स सहेजें",
-      "saving": "सहेजा जा रहा है…"
+      "saving": "सहेजा जा रहा है…",
+      "resetConfirmTitle": "सभी सेटिंग्स रीसेट करें?",
+      "resetConfirm": "हॉटकी, भाषाएँ, मॉडल और अन्य सेटिंग्स डिफ़ॉल्ट पर वापस जाएँगी। API कुंजियाँ रहेंगी।",
+      "resetConfirmOk": "रीसेट",
+      "resetConfirmCancel": "रद्द करें"
     },
     "status": {
       "modelsFound": "{count} उपलब्ध मॉडल मिले।",

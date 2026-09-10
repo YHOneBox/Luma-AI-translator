@@ -73,11 +73,11 @@ They communicate through **IPC** via a secure bridge in `electron/preload.js` (`
 
 ### 1. Full-Screen Translate
 
-**Hotkey:** `Alt+T` (customizable in Settings)
+**Hotkey:** `Alt+S` (customizable in Settings)
 
 **Step-by-step:**
 
-1. You press `Alt+T` (or click **Translate Screen** in the app / tray menu).
+1. You press `Alt+S` (or click **Translate Screen** in the app / tray menu).
 2. The main window hides briefly so it does not appear in the capture.
 3. A **popup window** opens near your cursor and shows *"Capturing screen…"*.
 4. The main process takes a **full-screen screenshot** via Electron's `desktopCapturer`.
@@ -87,7 +87,7 @@ They communicate through **IPC** via a secure bridge in `electron/preload.js` (`
 8. The popup updates with the full result.
 
 ```
-Alt+T
+Alt+S
     → hide main window
     → open popup (loading)
     → capture full screen
@@ -126,12 +126,12 @@ Alt+C
 
 ### 3. Selection Translate
 
-**Hotkey:** `Alt+X` (customizable)
+**Hotkey:** `Alt+T` (customizable)
 
 **Step-by-step:**
 
 1. **Highlight text** in any app (browser, PDF, editor, etc.).
-2. Press `Alt+X` (or click **Translate Selection**).
+2. Press `Alt+T` (or click **Translate Selection**).
 3. The app **hides its windows**, simulates `Ctrl+C` to copy your selection, and reads the clipboard.
 4. It verifies the clipboard text actually changed (retries copy if needed).
 5. The selected text is sent to Gemini as plain text (no screenshot).
@@ -139,7 +139,7 @@ Alt+C
 7. The popup shows the final result in the appropriate layout.
 
 ```
-Highlight text → Alt+X
+Highlight text → Alt+T
     → hide app windows
     → simulate Ctrl+C, read clipboard
     → Gemini translateText(text)
@@ -397,9 +397,9 @@ Get a free key from [Google AI Studio](https://aistudio.google.com/apikey).
 
 | Shortcut | Action |
 |----------|--------|
-| `Alt+T` | Capture **full screen** and translate |
+| `Alt+S` | Capture **full screen** and translate |
 | `Alt+C` | **Select a region** and translate |
-| `Alt+X` | Translate **highlighted text** (selection lookup) |
+| `Alt+T` | Translate **highlighted text** (selection lookup) |
 | `Alt+R` | **Replace** highlighted text with a translation |
 | `Alt+G` | **Fix grammar** of highlighted text (any language) and replace it |
 | `Alt+D` | Open **Dictionary** near the cursor to type a word/sentence and look it up |
@@ -493,7 +493,7 @@ npm run dist:portable
 Output:
 
 ```
-release/Luma-1.0.11-win-Portable.exe
+release/Luma-1.0.12-win-Portable.exe
 ```
 
 Other build commands:
@@ -614,7 +614,7 @@ First public release of the desktop translation app.
 1. Download the file for your OS from Assets below (`.exe` / `.dmg` / `.AppImage`)
 2. Run the app (see platform table in Download & Run section)
 3. Settings → API Keys → add your Gemini key
-4. Press `Alt+T` / `C` / `X` / `R` to translate or replace
+4. Press `Alt+S` / `C` / `T` / `R` to translate or replace
 
 ### Install (from source)
 1. Clone the repo

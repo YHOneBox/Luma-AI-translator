@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PhraseResult, WordResult } from './App';
+import { PhraseResult, PairResult, WordResult } from './App';
 import { I18nProvider, useI18n } from './i18n';
 import './styles.css';
 
@@ -105,6 +105,7 @@ function DictionaryApp() {
   };
 
   const isPhraseLayout = data?.layoutMode === 'phrase';
+  const isPairLayout = data?.layoutMode === 'pair';
 
   return (
     <div className="popup-shell">
@@ -163,7 +164,19 @@ function DictionaryApp() {
 
           {state === 'success' && data && (
             <div className="result-state">
-              {isPhraseLayout ? (
+              {isPairLayout ? (
+                <PairResult
+                  data={data}
+                  playing={playing}
+                  copied={copied}
+                  onPlaySource={() => playAudio(data.sourceAudioDataUrl, 'source')}
+                  onPlayTranslation={() => playAudio(data.translationAudioDataUrl, 'translation')}
+                  onCopySource={() =>
+                    copyText(data.sourceDisplay || data.sourceText || data.source_text, 'source')
+                  }
+                  onCopyTranslation={() => copyText(data.translation, 'translation')}
+                />
+              ) : isPhraseLayout ? (
                 <PhraseResult
                   data={data}
                   playing={playing}

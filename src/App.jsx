@@ -257,6 +257,127 @@ export function WordResult({ data, playing, copied, onPlay, onCopy }) {
   );
 }
 
+export function PairResult({
+  data,
+  playing,
+  copied,
+  onPlaySource,
+  onPlayTranslation,
+  onCopySource,
+  onCopyTranslation,
+}) {
+  const { t } = useI18n();
+  const source = data.sourceDisplay || data.sourceText || data.source_text || '';
+  const words = Array.isArray(data.words) ? data.words : [];
+  const sourceAudio = Boolean(data.sourceAudioDataUrl || data.pronunciationLoading);
+  const translationAudio = Boolean(data.translationAudioDataUrl || data.pronunciationLoading);
+
+  return (
+    <div className="pair-result">
+      <header className="pair-header">
+        <div className="pair-title-row">
+          <h1 className="word-title">{source}</h1>
+          <div className="context-actions">
+            {sourceAudio && (
+              <button
+                type="button"
+                className={`icon-btn ${playing === 'source' ? 'active' : ''}`}
+                onClick={onPlaySource}
+                disabled={!data.sourceAudioDataUrl}
+                aria-label={t('popup.playAudio')}
+                title={
+                  data.pronunciationLoading && !data.sourceAudioDataUrl
+                    ? t('progress.loadingAudio')
+                    : t('popup.playAudio')
+                }
+              >
+                {data.pronunciationLoading && !data.sourceAudioDataUrl ? (
+                  <span className="icon-spinner" />
+                ) : (
+                  <SpeakerIcon active={playing === 'source'} />
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              className={`icon-btn ${copied === 'source' ? 'active' : ''}`}
+              onClick={onCopySource}
+              aria-label={t('popup.copyText')}
+              title={copied === 'source' ? t('popup.copied') : t('popup.copy')}
+            >
+              <CopyIcon />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {data.translation && (
+        <section className="context-card">
+          <div className="context-card-header">
+            <span className="context-usage-label">{t('popup.contextualTranslation')}</span>
+            <div className="context-actions">
+              {translationAudio && (
+                <button
+                  type="button"
+                  className={`icon-btn ${playing === 'translation' ? 'active' : ''}`}
+                  onClick={onPlayTranslation}
+                  disabled={!data.translationAudioDataUrl}
+                  aria-label={t('popup.playAudio')}
+                  title={
+                    data.pronunciationLoading && !data.translationAudioDataUrl
+                      ? t('progress.loadingAudio')
+                      : t('popup.playAudio')
+                  }
+                >
+                  {data.pronunciationLoading && !data.translationAudioDataUrl ? (
+                    <span className="icon-spinner" />
+                  ) : (
+                    <SpeakerIcon active={playing === 'translation'} />
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                className={`icon-btn ${copied === 'translation' ? 'active' : ''}`}
+                onClick={onCopyTranslation}
+                aria-label={t('popup.copyTranslation')}
+                title={copied === 'translation' ? t('popup.copied') : t('popup.copyTranslation')}
+              >
+                <CopyIcon />
+              </button>
+            </div>
+          </div>
+          <p className="pair-translation">{data.translation}</p>
+        </section>
+      )}
+
+      {data.why_here && (
+        <section className="context-card">
+          <span className="context-usage-label">{t('popup.whyHere')}</span>
+          <p className="context-text">{data.why_here}</p>
+        </section>
+      )}
+
+      {words.length > 0 && (
+        <section className="pair-words">
+          <h2 className="pair-words-title">{t('popup.eachWord')}</h2>
+          {words.map((item, index) => (
+            <article key={`${item.word}-${index}`} className="pair-word">
+              <div className="pair-word-head">
+                <strong>{item.word}</strong>
+                {item.part_of_speech ? (
+                  <span className="part-of-speech">{item.part_of_speech}</span>
+                ) : null}
+              </div>
+              {item.meaning ? <p className="context-text">{item.meaning}</p> : null}
+            </article>
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
 export function PhraseResult({
   data,
   playing,
@@ -391,6 +512,7 @@ export default function App() {
   };
 
   const isPhraseLayout = data?.layoutMode === 'phrase';
+  const isPairLayout = data?.layoutMode === 'pair';
 
   return (
     <div className="popup-shell">
@@ -427,7 +549,19 @@ export default function App() {
 
         {state === 'success' && data && (
           <div className="result-state">
-            {isPhraseLayout ? (
+            {isPairLayout ? (
+              <PairResult
+                data={data}
+                playing={playing}
+                copied={copied}
+                onPlaySource={() => playAudio(data.sourceAudioDataUrl, 'source')}
+                onPlayTranslation={() => playAudio(data.translationAudioDataUrl, 'translation')}
+                onCopySource={() =>
+                  copyText(data.sourceDisplay || data.sourceText || data.source_text, 'source')
+                }
+                onCopyTranslation={() => copyText(data.translation, 'translation')}
+              />
+            ) : isPhraseLayout ? (
               <PhraseResult
                 data={data}
                 playing={playing}

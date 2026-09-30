@@ -143,7 +143,10 @@
     "showAll": "Tout afficher",
     "playPronunciation": "Lire la prononciation",
     "copyTranslation": "Copier la traduction",
-    "inThisContext": "Dans ce contexte"
+    "inThisContext": "Dans ce contexte",
+    "contextualTranslation": "Traduction dans ce contexte",
+    "whyHere": "Pourquoi cela veut dire cela ici",
+    "eachWord": "Chaque mot"
   },
   "region": {
     "hint": "Faites glisser pour sélectionner une zone · Échap pour annuler",

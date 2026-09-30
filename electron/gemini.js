@@ -1,9 +1,10 @@
 const { GoogleGenAI, Type } = require('@google/genai');
 const { loadSettings, resolveSystemPrompt } = require('./settings');
 const { resolveApiKey } = require('./api-keys');
-const { detectInputMode } = require('./translate-mode');
+const { detectInputMode, isTwoWordPhrase } = require('./translate-mode');
 
 const WORD_TIMEOUT_MS = 10000;
+const PAIR_TIMEOUT_MS = 20000;
 const PHRASE_TIMEOUT_MS = 25000;
 
 const WORD_SCHEMA = {
@@ -60,6 +61,56 @@ const WORD_SCHEMA = {
   ],
 };
 
+const PAIR_WORD_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    word: {
+      type: Type.STRING,
+      description: 'One of the two source words, in original order.',
+    },
+    part_of_speech: {
+      type: Type.STRING,
+      description: 'Part of speech of this word in the pair, e.g. n., v., adj., prep.',
+    },
+    meaning: {
+      type: Type.STRING,
+      description:
+        'A detailed description of this word in the target language: core sense, nuance, typical uses, and the exact role it plays in this two-word phrase.',
+    },
+  },
+  required: ['word', 'part_of_speech', 'meaning'],
+};
+
+const PAIR_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    source_text: {
+      type: Type.STRING,
+      description: 'The original two words, unchanged.',
+    },
+    translation: {
+      type: Type.STRING,
+      description:
+        'The natural equivalent of the two-word phrase in THIS context, in the target language. Not a word-by-word gloss.',
+    },
+    why_here: {
+      type: Type.STRING,
+      description:
+        '2–4 sentences in the target language explaining why this sense and this translation fit here.',
+    },
+    words: {
+      type: Type.ARRAY,
+      description: 'Exactly two entries, one per source word, in order.',
+      items: PAIR_WORD_SCHEMA,
+    },
+    source_language: {
+      type: Type.STRING,
+      description: 'BCP-47 code of the source, usually en.',
+    },
+  },
+  required: ['source_text', 'translation', 'why_here', 'words', 'source_language'],
+};
+
 const PHRASE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -88,7 +139,7 @@ const SCREENSHOT_SCHEMA = {
     mode: {
       type: Type.STRING,
       description:
-        'Set to "word" if the primary text is exactly one dictionary word. Set to "phrase" for sentences, clauses, or paragraphs.',
+        'word = exactly one dictionary word. pair = exactly two words (collocation, phrasal verb, or compound). phrase = a sentence, clause, or three or more words.',
     },
     source_text: {
       type: Type.STRING,
@@ -97,7 +148,7 @@ const SCREENSHOT_SCHEMA = {
     translation: {
       type: Type.STRING,
       description:
-        'For mode=phrase: complete translation of ALL source_text. For mode=word: the word translation/definition.',
+        'phrase: complete translation of ALL source_text. word: the word translation. pair: the contextual equivalent of the two-word phrase, not a word-by-word gloss.',
     },
     source_language: {
       type: Type.STRING,
@@ -109,7 +160,16 @@ const SCREENSHOT_SCHEMA = {
     usage_in_context: { type: Type.STRING, description: 'Word mode only; empty string for phrase mode.' },
     part_of_speech: { type: Type.STRING, description: 'Word mode only; empty string for phrase mode.' },
     phonetic_ipa: { type: Type.STRING, description: 'Word mode only; empty string for phrase mode.' },
-    base_word: { type: Type.STRING, description: 'Word mode only; empty string for phrase mode.' },
+    base_word: { type: Type.STRING, description: 'Word mode only; empty string otherwise.' },
+    why_here: {
+      type: Type.STRING,
+      description: 'Pair mode: why this translation fits this context. Empty string otherwise.',
+    },
+    words: {
+      type: Type.ARRAY,
+      description: 'Pair mode: exactly two detailed word entries. Empty array otherwise.',
+      items: PAIR_WORD_SCHEMA,
+    },
   },
   required: [
     'mode',
@@ -123,6 +183,8 @@ const SCREENSHOT_SCHEMA = {
     'part_of_speech',
     'phonetic_ipa',
     'base_word',
+    'why_here',
+    'words',
   ],
 };
 
@@ -149,13 +211,29 @@ Step 1 — Extract the primary text block the user most likely wants translated 
 
 Step 2 — Decide mode:
 - mode=word ONLY if the primary text is exactly ONE dictionary word (no spaces, not a sentence).
-- mode=phrase for ANY sentence, clause, paragraph, or multiple words.
+- mode=pair if the primary text is EXACTLY TWO words (a collocation, phrasal verb, compound, or short phrase such as "machine learning" or "take off").
+- mode=phrase for ANY sentence, clause, paragraph, or three or more words.
 
 Step 3 — Respond:
-- phrase mode: translation must be a COMPLETE faithful translation of ALL of source_text. Leave example_sentence, example_translation, context_explanation, usage_in_context, part_of_speech, phonetic_ipa, and base_word as empty strings.
-- word mode: fill all dictionary/tutor fields. translation is the ${language} equivalent or definition.
+- phrase mode: translation must be a COMPLETE faithful translation of ALL of source_text. Leave example_sentence, example_translation, context_explanation, usage_in_context, part_of_speech, phonetic_ipa, base_word, and why_here as empty strings. words must be an empty array.
+- pair mode: use the surrounding screenshot to choose the sense. translation is the natural ${language} equivalent of the two-word unit IN THIS CONTEXT, not a generic word-by-word gloss. why_here explains in ${language} why that sense fits here. words has exactly two entries, in order; each meaning is a detailed ${language} description of that word (core sense, nuance, typical uses, and its role in the pair). Leave the single-word tutor fields empty.
+- word mode: fill all dictionary/tutor fields. translation is the ${language} equivalent or definition. why_here is empty and words is an empty array.
 
 Never summarize. Never translate only part of the text when mode=phrase.`;
+}
+
+function resolvePairSystemPrompt(settings) {
+  const language = settings.targetLanguage || 'Chinese (Traditional)';
+  return `You explain two-word English phrases for a learner whose target language is ${language}.
+
+The input is exactly two words: a collocation, phrasal verb, compound, or short phrase.
+
+Rules:
+- translation: the natural ${language} equivalent of the TWO-WORD UNIT as used here. Do not only list separate dictionary glosses. If extra surrounding context is visible, use that sense. If the input is only the two words, use their most common combined meaning.
+- why_here: 2–4 sentences in ${language} explaining why it means this here — which sense was chosen, how the two words interact, and what would be wrong about a more literal reading.
+- words: exactly two objects, in source order. For each word, meaning must be a detailed paragraph in ${language} covering the core meaning, nuance, common uses, and the specific role this word plays in the pair.
+- Do not leave meaning or why_here as a short gloss.
+- source_text must be the original two words.`;
 }
 
 function withTimeout(promise, ms, message) {
@@ -196,6 +274,60 @@ function formatWordResult(parsed, modelUsed, extra = {}) {
   };
 }
 
+function parsePairWords(value, source) {
+  let list = value;
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      list = [];
+    }
+  }
+  if (!Array.isArray(list)) list = [];
+
+  const fallback = String(source || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return [0, 1]
+    .map((index) => {
+      const item = list[index] && typeof list[index] === 'object' ? list[index] : {};
+      return {
+        word: String(item.word || fallback[index] || '').trim(),
+        part_of_speech: String(item.part_of_speech || '').trim(),
+        meaning: String(item.meaning || '').trim(),
+      };
+    })
+    .filter((item) => item.word || item.meaning);
+}
+
+function formatPairResult(parsed, modelUsed, extra = {}) {
+  const source = String(parsed.source_text || extra.source_text || extra.sourceText || '').trim();
+  const translation = String(parsed.translation || '').trim();
+
+  return {
+    layoutMode: 'pair',
+    mode: 'pair',
+    source_text: source,
+    sourceText: source,
+    sourceDisplay: source,
+    translation,
+    why_here: String(parsed.why_here || '').trim(),
+    words: parsePairWords(parsed.words, source),
+    source_language: parsed.source_language || 'en',
+    example_sentence: '',
+    example_translation: '',
+    context_explanation: '',
+    usage_in_context: '',
+    part_of_speech: '',
+    phonetic_ipa: '',
+    base_word: '',
+    modelUsed,
+    ...extra,
+  };
+}
+
 function formatPhraseResult(parsed, modelUsed, extra = {}) {
   const source = String(parsed.source_text || extra.source_text || extra.sourceText || '').trim();
   const translation = String(parsed.translation || '').trim();
@@ -221,7 +353,12 @@ function formatPhraseResult(parsed, modelUsed, extra = {}) {
 }
 
 function formatScreenshotResult(parsed, modelUsed) {
-  const mode = parsed.mode === 'word' ? 'word' : 'phrase';
+  const source = String(parsed.source_text || '').trim();
+  const mode = parsed.mode === 'word' ? 'word' : parsed.mode === 'pair' ? 'pair' : 'phrase';
+
+  if (mode === 'pair' || isTwoWordPhrase(source)) {
+    return formatPairResult(parsed, modelUsed);
+  }
 
   if (mode === 'phrase') {
     return formatPhraseResult(parsed, modelUsed);
@@ -320,7 +457,7 @@ async function translateScreenshot(imageBuffer, onProgress) {
         role: 'user',
         parts: [
           {
-            text: 'Extract the primary text from this screenshot and return structured JSON. Use mode=phrase for any sentence or paragraph; translate ALL extracted text completely.',
+            text: 'Extract the primary text from this screenshot and return structured JSON. Use mode=pair for exactly two words, with a contextual translation, why that meaning fits, and a detailed description of each word. Use mode=phrase for any sentence or longer text and translate ALL extracted text completely.',
           },
           {
             inlineData: {
@@ -354,7 +491,35 @@ async function translateText(text, onProgress) {
   const mode = detectInputMode(trimmed);
   const ai = new GoogleGenAI({ apiKey });
 
-  onProgress?.(mode === 'phrase' ? 'Translating text...' : 'Translating word...');
+  onProgress?.(
+    mode === 'phrase' ? 'Translating text...' : mode === 'pair' ? 'Explaining phrase...' : 'Translating word...'
+  );
+
+  if (mode === 'pair') {
+    const { parsed, model } = await generateWithFallback(
+      ai,
+      settings,
+      resolvePairSystemPrompt(settings),
+      [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `Explain this two-word phrase. Give the contextual translation, why it means that, and a detailed description of each word.\n\n${trimmed}`,
+            },
+          ],
+        },
+      ],
+      PAIR_SCHEMA,
+      onProgress,
+      PAIR_TIMEOUT_MS
+    );
+
+    return formatPairResult(parsed, model, {
+      sourceText: trimmed,
+      source_text: parsed.source_text?.trim() || trimmed,
+    });
+  }
 
   if (mode === 'phrase') {
     const { parsed, model } = await generateWithFallback(

@@ -401,14 +401,16 @@ async function runDictionaryLookup(text) {
   }
 
   const immediate = formatImmediateResult(result);
-  enrichTranslationResult(result)
+  const emit = (patch) => {
+    if (seq !== dictionaryResultSeq) return;
+    sendToDictionary('dictionary:pronunciation', patch);
+  };
+  enrichTranslationResult(result, emit)
     .then((enriched) => {
-      if (seq !== dictionaryResultSeq) return;
-      sendToDictionary('dictionary:pronunciation', enriched);
+      emit(enriched);
     })
     .catch(() => {
-      if (seq !== dictionaryResultSeq) return;
-      sendToDictionary('dictionary:pronunciation', {
+      emit({
         pronunciationLoading: false,
         pronunciationReady: false,
       });
@@ -599,15 +601,15 @@ function formatImmediateResult(result) {
   };
 }
 
-async function enrichTranslationResult(result) {
+async function enrichTranslationResult(result, onPartial) {
   const layoutMode = resolveLayoutMode(result);
   let enriched;
 
   if (layoutMode === 'word') {
-    enriched = await enrichWithPronunciation(result);
+    enriched = await enrichWithPronunciation(result, onPartial);
   } else {
     const { targetLanguage } = loadSettings();
-    enriched = await enrichPhraseResult(result, targetLanguage);
+    enriched = await enrichPhraseResult(result, targetLanguage, onPartial);
   }
 
   return {
@@ -621,14 +623,17 @@ async function enrichTranslationResult(result) {
 }
 
 function enrichInBackground(result, seq, send, expectedSeq) {
-  enrichTranslationResult(result)
+  const emit = (patch) => {
+    if (seq !== expectedSeq()) return;
+    send('translation:pronunciation', patch);
+  };
+
+  enrichTranslationResult(result, emit)
     .then((enriched) => {
-      if (seq !== expectedSeq()) return;
-      send('translation:pronunciation', enriched);
+      emit(enriched);
     })
     .catch(() => {
-      if (seq !== expectedSeq()) return;
-      send('translation:pronunciation', {
+      emit({
         pronunciationLoading: false,
         pronunciationReady: false,
       });

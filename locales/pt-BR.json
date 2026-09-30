@@ -143,7 +143,10 @@
     "showAll": "Mostrar tudo",
     "playPronunciation": "Reproduzir pronúncia",
     "copyTranslation": "Copiar tradução",
-    "inThisContext": "Neste contexto"
+    "inThisContext": "Neste contexto",
+    "contextualTranslation": "Tradução neste contexto",
+    "whyHere": "Por que significa isso aqui",
+    "eachWord": "Cada palavra"
   },
   "region": {
     "hint": "Arraste para selecionar uma região · Esc para cancelar",

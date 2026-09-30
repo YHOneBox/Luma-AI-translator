@@ -158,7 +158,10 @@
     "showAll": "Show all",
     "playPronunciation": "Play pronunciation",
     "copyTranslation": "Copy translation",
-    "inThisContext": "In this context"
+    "inThisContext": "In this context",
+    "contextualTranslation": "Translation in this context",
+    "whyHere": "Why it means this here",
+    "eachWord": "Each word"
   },
   "region": {
     "hint": "Drag to select a region · Esc to cancel",

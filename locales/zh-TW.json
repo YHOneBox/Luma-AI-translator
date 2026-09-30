@@ -143,7 +143,10 @@
     "showAll": "顯示全部",
     "playPronunciation": "播放發音",
     "copyTranslation": "複製譯文",
-    "inThisContext": "在此語境中"
+    "inThisContext": "在此語境中",
+    "contextualTranslation": "在此語境中的譯法",
+    "whyHere": "為什麼這裡是這個意思",
+    "eachWord": "每個詞"
   },
   "region": {
     "hint": "拖曳以框選區域 · 按 Esc 取消",

@@ -1,6 +1,6 @@
 {
   "name": "luma",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Luma — desktop translation app that captures screen text and translates via Gemini",
   "main": "electron/main.js",
   "scripts": {

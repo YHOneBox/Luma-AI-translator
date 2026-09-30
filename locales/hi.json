@@ -143,7 +143,10 @@
     "showAll": "सब दिखाएँ",
     "playPronunciation": "उच्चारण चलाएँ",
     "copyTranslation": "अनुवाद कॉपी करें",
-    "inThisContext": "इस संदर्भ में"
+    "inThisContext": "इस संदर्भ में",
+    "contextualTranslation": "इस संदर्भ में अनुवाद",
+    "whyHere": "यहाँ इसका यह अर्थ क्यों है",
+    "eachWord": "प्रत्येक शब्द"
   },
   "region": {
     "hint": "क्षेत्र चुनने के लिए खींचें · रद्द करने के लिए Esc",

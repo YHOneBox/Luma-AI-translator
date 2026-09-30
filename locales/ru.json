@@ -143,7 +143,10 @@
     "showAll": "Показать всё",
     "playPronunciation": "Воспроизвести произношение",
     "copyTranslation": "Копировать перевод",
-    "inThisContext": "В этом контексте"
+    "inThisContext": "В этом контексте",
+    "contextualTranslation": "Перевод в этом контексте",
+    "whyHere": "Почему здесь это значит",
+    "eachWord": "Каждое слово"
   },
   "region": {
     "hint": "Перетащите, чтобы выбрать область · Esc для отмены",

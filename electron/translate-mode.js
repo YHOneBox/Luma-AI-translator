@@ -4,14 +4,24 @@ function isSingleEnglishWord(text) {
   return /^[a-zA-Z'-]+$/.test(word);
 }
 
+function isTwoWordPhrase(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || /[.!?。！？；;:\n]/.test(trimmed)) return false;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length !== 2) return false;
+  return words.every((word) => /^[a-zA-Z][a-zA-Z'-]*$/.test(word));
+}
+
 /**
- * Detect whether input should use phrase (full-text) translation vs dictionary word mode.
+ * Detect whether input should use phrase translation, a two-word breakdown, or dictionary word mode.
  * @param {string} text
- * @returns {'word'|'phrase'}
+ * @returns {'word'|'pair'|'phrase'}
  */
 function detectInputMode(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return 'word';
+
+  if (isTwoWordPhrase(trimmed)) return 'pair';
 
   const words = trimmed.split(/\s+/).filter(Boolean);
 
@@ -32,14 +42,14 @@ function getSourceText(result) {
 
 /**
  * @param {object} result
- * @returns {'word'|'phrase'}
+ * @returns {'word'|'pair'|'phrase'}
  */
 function resolveLayoutMode(result) {
-  if (result.layoutMode === 'word' || result.layoutMode === 'phrase') {
+  if (result.layoutMode === 'word' || result.layoutMode === 'pair' || result.layoutMode === 'phrase') {
     return result.layoutMode;
   }
 
-  if (result.mode === 'word' || result.mode === 'phrase') {
+  if (result.mode === 'word' || result.mode === 'pair' || result.mode === 'phrase') {
     return result.mode;
   }
 
@@ -56,4 +66,5 @@ module.exports = {
   getSourceText,
   resolveLayoutMode,
   isSingleEnglishWord,
+  isTwoWordPhrase,
 };

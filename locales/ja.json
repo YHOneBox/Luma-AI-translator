@@ -143,7 +143,10 @@
     "showAll": "すべて表示",
     "playPronunciation": "発音を再生",
     "copyTranslation": "翻訳をコピー",
-    "inThisContext": "この文脈では"
+    "inThisContext": "この文脈では",
+    "contextualTranslation": "この文脈での訳",
+    "whyHere": "ここでこの意味になる理由",
+    "eachWord": "それぞれの語"
   },
   "region": {
     "hint": "ドラッグして範囲を選択 · Esc でキャンセル",

@@ -143,7 +143,10 @@
     "showAll": "모두 보기",
     "playPronunciation": "발음 재생",
     "copyTranslation": "번역 복사",
-    "inThisContext": "이 맥락에서"
+    "inThisContext": "이 맥락에서",
+    "contextualTranslation": "이 문맥에서의 번역",
+    "whyHere": "여기서 이 뜻인 이유",
+    "eachWord": "각 단어"
   },
   "region": {
     "hint": "드래그하여 영역 선택 · Esc로 취소",

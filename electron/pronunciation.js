@@ -1,9 +1,14 @@
 const https = require('https');
 const http = require('http');
 
-const REQUEST_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 4000;
+const IPA_TIMEOUT_MS = 2500;
+const AUDIO_CACHE_LIMIT = 80;
 
-function httpGetBuffer(url, redirectCount = 0) {
+const audioCache = new Map();
+const ipaCache = new Map();
+
+function httpGetBuffer(url, redirectCount = 0, timeoutMs = REQUEST_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('https') ? https : http;
 
@@ -11,10 +16,10 @@ function httpGetBuffer(url, redirectCount = 0) {
       url,
       {
         headers: {
-          'User-Agent': 'Luma/1.0.13 (Electron)',
+          'User-Agent': 'Luma/1.0.14 (Electron)',
           Accept: '*/*',
         },
-        timeout: REQUEST_TIMEOUT_MS,
+        timeout: timeoutMs,
       },
       (res) => {
         if (
@@ -27,7 +32,7 @@ function httpGetBuffer(url, redirectCount = 0) {
             ? res.headers.location
             : new URL(res.headers.location, url).href;
           res.resume();
-          httpGetBuffer(next, redirectCount + 1).then(resolve).catch(reject);
+          httpGetBuffer(next, redirectCount + 1, timeoutMs).then(resolve).catch(reject);
           return;
         }
 
@@ -51,10 +56,20 @@ function httpGetBuffer(url, redirectCount = 0) {
   });
 }
 
-function normalizeAudioUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('//')) return `https:${url}`;
-  return url;
+function cacheGet(map, key) {
+  if (!map.has(key)) return undefined;
+  const value = map.get(key);
+  map.delete(key);
+  map.set(key, value);
+  return value;
+}
+
+function cacheSet(map, key, value) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  if (map.size > AUDIO_CACHE_LIMIT) {
+    map.delete(map.keys().next().value);
+  }
 }
 
 function normalizeIpa(ipa) {
@@ -67,38 +82,11 @@ function normalizeIpa(ipa) {
 
 const { isSingleEnglishWord } = require('./translate-mode');
 
-function pickPhoneticAndAudio(phonetics, entryPhonetic) {
-  let phonetic = entryPhonetic || '';
-  let audioUk = null;
-  let audioUs = null;
-  let audioAny = null;
-
-  for (const item of phonetics || []) {
-    if (item.text && !phonetic) {
-      phonetic = item.text;
-    }
-
-    const url = normalizeAudioUrl(item.audio);
-    if (!url) continue;
-
-    const lower = url.toLowerCase();
-    if (lower.includes('-uk') || lower.includes('_gb_') || lower.includes('/uk_')) {
-      audioUk = audioUk || url;
-    } else if (lower.includes('-us') || lower.includes('_us_') || lower.includes('/us_')) {
-      audioUs = audioUs || url;
-    } else {
-      audioAny = audioAny || url;
-    }
-  }
-
-  if (!audioUs && audioAny) audioUs = audioAny;
-  if (!audioUk && audioAny && audioAny !== audioUs) audioUk = audioAny;
-
-  return {
-    phonetic: normalizeIpa(phonetic),
-    audioUk,
-    audioUs,
-  };
+function looksLikeAudio(body, contentType) {
+  if (!body || body.length < 64) return false;
+  if (String(contentType || '').includes('audio')) return true;
+  if (body.slice(0, 3).toString('latin1') === 'ID3') return true;
+  return body[0] === 0xff && (body[1] & 0xe0) === 0xe0;
 }
 
 function extractIpaFromWikitext(wikitext) {
@@ -121,45 +109,93 @@ function extractIpaFromWikitext(wikitext) {
 }
 
 async function fetchIpaFromWiktionary(word) {
+  const cached = cacheGet(ipaCache, word);
+  if (cached !== undefined) return cached;
+
   const url = `https://en.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(word)}&prop=wikitext&format=json&origin=*`;
-  const { status, body } = await httpGetBuffer(url);
-  if (status !== 200) return '';
+  const { status, body } = await httpGetBuffer(url, 0, IPA_TIMEOUT_MS);
+  if (status !== 200) {
+    cacheSet(ipaCache, word, '');
+    return '';
+  }
 
   const data = JSON.parse(body.toString('utf8'));
-  return extractIpaFromWikitext(data.parse?.wikitext?.['*'] || '');
+  const ipa = extractIpaFromWikitext(data.parse?.wikitext?.['*'] || '');
+  cacheSet(ipaCache, word, ipa);
+  return ipa;
 }
 
-async function fetchFromDictionaryApi(word) {
-  const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
-  const { status, body } = await httpGetBuffer(url);
-  if (status !== 200) return null;
-
-  const text = body.toString('utf8').trim();
-  if (!text.startsWith('[') && !text.startsWith('{')) return null;
-
-  const entries = JSON.parse(text);
-  const entry = entries[0];
-  if (!entry) return null;
-
-  return pickPhoneticAndAudio(entry.phonetics, entry.phonetic);
+function getGoogleTtsUrl(text, lang, client, host) {
+  return `https://${host}/translate_tts?ie=UTF-8&client=${client}&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
 }
 
-function getGoogleTtsUrl(text, lang = 'en') {
-  return `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
+function youdaoLang(lang) {
+  const raw = String(lang || 'en').toLowerCase();
+  if (raw.startsWith('zh')) return 'zh';
+  if (raw.startsWith('en')) return 'en';
+  if (raw.startsWith('ja')) return 'ja';
+  if (raw.startsWith('ko')) return 'ko';
+  if (raw.startsWith('fr')) return 'fr';
+  if (raw.startsWith('de')) return 'de';
+  if (raw.startsWith('es')) return 'es';
+  if (raw.startsWith('pt')) return 'pt';
+  if (raw.startsWith('it')) return 'it';
+  if (raw.startsWith('ru')) return 'ru';
+  if (raw.startsWith('ar')) return 'ar';
+  if (raw.startsWith('hi')) return 'hi';
+  if (raw.startsWith('th')) return 'th';
+  if (raw.startsWith('vi')) return 'vi';
+  return 'en';
+}
+
+function getYoudaoTtsUrl(text, lang = 'en') {
+  const q = encodeURIComponent(text);
+  const le = youdaoLang(lang);
+  if (le === 'en') {
+    return `https://dict.youdao.com/dictvoice?audio=${q}&type=2`;
+  }
+  return `https://dict.youdao.com/dictvoice?audio=${q}&le=${encodeURIComponent(le)}`;
+}
+
+function ttsCandidateUrls(text, lang = 'en') {
+  return [
+    getGoogleTtsUrl(text, lang, 'tw-ob', 'translate.google.com'),
+    getGoogleTtsUrl(text, lang, 'gtx', 'translate.googleapis.com'),
+    getYoudaoTtsUrl(text, lang),
+  ];
 }
 
 async function fetchAudioDataUrl(sourceUrl) {
   const { status, body, headers } = await httpGetBuffer(sourceUrl);
-  if (status !== 200 || body.length === 0) return null;
+  if (status !== 200 || !looksLikeAudio(body, headers['content-type'])) return null;
 
-  const mime = String(headers['content-type'] || 'audio/mpeg').split(';')[0];
+  const mime = String(headers['content-type'] || 'audio/mpeg').split(';')[0] || 'audio/mpeg';
   return `data:${mime};base64,${body.toString('base64')}`;
 }
 
-async function fetchGoogleTtsDataUrl(text, lang = 'en') {
+async function fetchTtsDataUrl(text, lang = 'en') {
   const snippet = String(text || '').trim().slice(0, 480);
   if (!snippet) return null;
-  return fetchAudioDataUrl(getGoogleTtsUrl(snippet, lang));
+
+  const cacheKey = `${lang}:${snippet}`;
+  const cached = cacheGet(audioCache, cacheKey);
+  if (cached !== undefined) return cached;
+
+  try {
+    const dataUrl = await Promise.any(
+      ttsCandidateUrls(snippet, lang).map((url) =>
+        fetchAudioDataUrl(url).then((value) => {
+          if (!value) throw new Error('empty');
+          return value;
+        })
+      )
+    );
+    cacheSet(audioCache, cacheKey, dataUrl);
+    return dataUrl;
+  } catch {
+    cacheSet(audioCache, cacheKey, null);
+    return null;
+  }
 }
 
 function normalizeTtsLang(code) {
@@ -220,88 +256,103 @@ function resolveLookupWord(result) {
   return null;
 }
 
-async function enrichWithPronunciation(result) {
+async function enrichWithPronunciation(result, onPartial) {
   const lookupWord = resolveLookupWord(result);
 
   if (!lookupWord) {
     return { ...result, isSingleWord: false, pronunciationReady: false };
   }
 
-  const base = { ...result, isSingleWord: true, lookupWord };
-
+  const base = { ...result, isSingleWord: true, lookupWord, layoutMode: 'word' };
   let phonetic = normalizeIpa(result.phonetic_ipa || result.phonetic || '');
-  let audioUk = null;
-  let audioUs = null;
   let audioDataUrl = null;
 
-  const tasks = [];
+  const emit = (loading) => {
+    onPartial?.({
+      ...base,
+      phonetic,
+      audioDataUrl,
+      pronunciationLoading: loading,
+      pronunciationReady: Boolean(phonetic || audioDataUrl),
+    });
+  };
 
-  if (!phonetic) {
-    tasks.push(
-      fetchIpaFromWiktionary(lookupWord)
+  const audioTask = fetchTtsDataUrl(lookupWord, 'en')
+    .then((url) => {
+      audioDataUrl = url;
+      emit(!phonetic);
+    })
+    .catch(() => {});
+
+  const ipaTask = phonetic
+    ? Promise.resolve()
+    : fetchIpaFromWiktionary(lookupWord)
         .then((ipa) => {
           if (ipa) phonetic = ipa;
+          emit(!audioDataUrl);
         })
-        .catch(() => {})
-    );
-  }
+        .catch(() => {});
 
-  tasks.push(
-    fetchFromDictionaryApi(lookupWord)
-      .then((dict) => {
-        if (!dict) return;
-        if (!phonetic && dict.phonetic) phonetic = dict.phonetic;
-        audioUk = dict.audioUk;
-        audioUs = dict.audioUs;
-      })
-      .catch(() => {})
-  );
-
-  tasks.push(
-    fetchGoogleTtsDataUrl(lookupWord)
-      .then((dataUrl) => {
-        if (dataUrl) audioDataUrl = dataUrl;
-      })
-      .catch(() => {})
-  );
-
-  await Promise.all(tasks);
-
-  if (!audioDataUrl && (audioUs || audioUk)) {
-    audioDataUrl = await fetchAudioDataUrl(audioUs || audioUk).catch(() => null);
-  }
+  await Promise.all([audioTask, ipaTask]);
 
   return {
     ...base,
     phonetic,
-    audioUk,
-    audioUs,
     audioDataUrl,
     pronunciationReady: Boolean(phonetic || audioDataUrl),
     layoutMode: 'word',
   };
 }
 
-async function enrichPhraseResult(result, targetLanguage = 'English') {
+async function enrichPhraseResult(result, targetLanguage = 'English', onPartial) {
   const { getSourceText } = require('./translate-mode');
   const source = getSourceText(result);
   const translation = String(result.translation || '').trim();
   const targetLang = getTtsLangCode(targetLanguage);
   const sourceLang = normalizeTtsLang(result.source_language || 'en');
 
-  const [sourceAudioDataUrl, translationAudioDataUrl] = await Promise.all([
-    source ? fetchGoogleTtsDataUrl(source, sourceLang) : null,
-    translation ? fetchGoogleTtsDataUrl(translation, targetLang) : null,
-  ]);
+  let sourceAudioDataUrl = null;
+  let translationAudioDataUrl = null;
+  let sourceDone = !source;
+  let translationDone = !translation;
 
-  return {
+  const snapshot = () => ({
     ...result,
     isSingleWord: false,
     layoutMode: 'phrase',
     sourceDisplay: source || translation,
     sourceAudioDataUrl,
     translationAudioDataUrl,
-  };
+    pronunciationLoading: !(sourceDone && translationDone),
+    pronunciationReady: Boolean(sourceAudioDataUrl || translationAudioDataUrl),
+  });
+
+  await Promise.all([
+    source
+      ? fetchTtsDataUrl(source, sourceLang)
+          .then((url) => {
+            sourceAudioDataUrl = url;
+            sourceDone = true;
+            onPartial?.(snapshot());
+          })
+          .catch(() => {
+            sourceDone = true;
+          })
+      : Promise.resolve(),
+    translation
+      ? fetchTtsDataUrl(translation, targetLang)
+          .then((url) => {
+            translationAudioDataUrl = url;
+            translationDone = true;
+            onPartial?.(snapshot());
+          })
+          .catch(() => {
+            translationDone = true;
+          })
+      : Promise.resolve(),
+  ]);
+
+  return snapshot();
 }
 
 module.exports = {

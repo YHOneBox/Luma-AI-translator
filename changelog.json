@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.0.14",
+      "date": "2026-09-30",
+      "title": "Faster pronunciation and two-word explanations",
+      "items": [
+        "Pronunciation audio uses the first voice that responds, so the play button appears much sooner",
+        "Two-word phrases show the translation in context, why that meaning fits, and a detailed description of each word"
+      ]
+    },
+    {
       "version": "1.0.13",
       "date": "2026-09-10",
       "title": "In-app update actually restarts",

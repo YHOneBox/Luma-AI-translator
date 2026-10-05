@@ -428,6 +428,17 @@ export function PhraseResult({
   );
 }
 
+export function mergePronunciation(prev, patch) {
+  if (!prev) return prev;
+  const next = { ...prev, ...patch };
+  if (prev.layoutMode === 'pair') {
+    next.layoutMode = 'pair';
+    if (Array.isArray(prev.words) && prev.words.length > 0) next.words = prev.words;
+    if (prev.why_here) next.why_here = prev.why_here;
+  }
+  return next;
+}
+
 export default function App() {
   const { t } = useI18n();
   const [state, setState] = useState('loading');
@@ -465,7 +476,7 @@ export default function App() {
     });
 
     api.onTranslationPronunciation((patch) => {
-      setData((prev) => (prev ? { ...prev, ...patch } : prev));
+      setData((prev) => mergePronunciation(prev, patch));
     });
 
     api.onTranslationError(({ message: msg }) => {

@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showDictionary: () => ipcRenderer.send('dictionary:show'),
   showAsk: () => ipcRenderer.send('ask:show'),
   closeAsk: () => ipcRenderer.send('ask:close'),
+  getAskHistory: () => ipcRenderer.invoke('ask:getHistory'),
+  saveAskHistory: (session) => ipcRenderer.send('ask:saveHistory', session),
   askChat: (messages) => ipcRenderer.invoke('ask:chat', messages),
   onAskFocus: (callback) => {
     const handler = () => callback();

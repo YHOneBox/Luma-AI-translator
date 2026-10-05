@@ -16,7 +16,7 @@ function httpGetBuffer(url, redirectCount = 0, timeoutMs = REQUEST_TIMEOUT_MS) {
       url,
       {
         headers: {
-          'User-Agent': 'Luma/1.0.14 (Electron)',
+          'User-Agent': 'Luma/1.0.15 (Electron)',
           Accept: '*/*',
         },
         timeout: timeoutMs,
@@ -319,8 +319,8 @@ async function enrichPhraseResult(result, targetLanguage = 'English', onPartial)
   const snapshot = () => ({
     ...result,
     isSingleWord: false,
-    layoutMode: 'phrase',
-    sourceDisplay: source || translation,
+    layoutMode: result.layoutMode === 'pair' ? 'pair' : 'phrase',
+    sourceDisplay: source || result.sourceDisplay || translation,
     sourceAudioDataUrl,
     translationAudioDataUrl,
     pronunciationLoading: !(sourceDone && translationDone),

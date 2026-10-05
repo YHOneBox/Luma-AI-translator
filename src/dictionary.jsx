@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PhraseResult, PairResult, WordResult } from './App';
+import { PhraseResult, PairResult, WordResult, mergePronunciation } from './App';
 import { I18nProvider, useI18n } from './i18n';
 import './styles.css';
 
@@ -43,7 +43,7 @@ function DictionaryApp() {
     const api = window.electronAPI;
     const unsubFocus = api?.onDictionaryFocus?.(() => focusInput());
     api?.onDictionaryPronunciation?.((patch) => {
-      setData((prev) => (prev ? { ...prev, ...patch } : prev));
+      setData((prev) => mergePronunciation(prev, patch));
     });
 
     return () => {

@@ -11,6 +11,7 @@ function AskApp() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [modelUsed, setModelUsed] = useState('');
+  const [historyReady, setHistoryReady] = useState(false);
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
@@ -38,14 +39,40 @@ function AskApp() {
     window.addEventListener('keydown', onKeyDown);
 
     const unsubFocus = window.electronAPI?.onAskFocus?.(() => focusInput());
+    let cancelled = false;
+    const pending = window.electronAPI?.getAskHistory?.();
+    if (!pending) {
+      setHistoryReady(true);
+    } else {
+      Promise.resolve(pending)
+        .then((session) => {
+          if (cancelled) return;
+          if (Array.isArray(session?.messages)) {
+            setMessages(session.messages);
+          }
+          if (typeof session?.modelUsed === 'string') {
+            setModelUsed(session.modelUsed);
+          }
+          setHistoryReady(true);
+        })
+        .catch(() => {
+          if (!cancelled) setHistoryReady(true);
+        });
+    }
 
     return () => {
+      cancelled = true;
       window.removeEventListener('keydown', onKeyDown);
       unsubFocus?.();
       document.body.classList.remove('popup-page', 'ask-page');
       document.documentElement.classList.remove('popup-page', 'ask-page');
     };
   }, [closeAsk, focusInput]);
+
+  useEffect(() => {
+    if (!historyReady) return;
+    window.electronAPI?.saveAskHistory?.({ messages, modelUsed });
+  }, [historyReady, messages, modelUsed]);
 
   useEffect(() => {
     if (!listRef.current) return;

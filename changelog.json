@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.0.15",
+      "date": "2026-10-05",
+      "title": "Keep two-word explanations and Ask AI history",
+      "items": [
+        "Two-word translations stay on the contextual explanation after pronunciation loads",
+        "Ask AI keeps the conversation when the window closes, and clears it only when you press Clear"
+      ]
+    },
+    {
       "version": "1.0.14",
       "date": "2026-09-30",
       "title": "Faster pronunciation and two-word explanations",

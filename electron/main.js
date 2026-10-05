@@ -72,6 +72,7 @@ let popupResultSeq = 0;
 let dictionaryResultSeq = 0;
 let latestUpdateInfo = null;
 let updateInstallInProgress = false;
+let askSession = { messages: [], modelUsed: '' };
 
 function getPageUrl(page) {
   const file = page === 'main' ? 'index' : page;
@@ -381,6 +382,13 @@ function openAskWindow() {
     }
   });
 
+  askWindow.on('close', (event) => {
+    if (!appIsQuitting && askWindow && !askWindow.isDestroyed()) {
+      event.preventDefault();
+      askWindow.hide();
+    }
+  });
+
   askWindow.on('closed', () => {
     askWindow = null;
   });
@@ -614,7 +622,7 @@ async function enrichTranslationResult(result, onPartial) {
 
   return {
     ...enriched,
-    layoutMode: enriched.layoutMode || layoutMode,
+    layoutMode,
     isSingleWord: layoutMode === 'word' && Boolean(enriched.isSingleWord),
     lookupWord: enriched.lookupWord || resolveLookupWord(enriched) || undefined,
     pronunciationLoading: false,
@@ -835,6 +843,21 @@ function setupIpc() {
     if (askWindow && !askWindow.isDestroyed()) {
       askWindow.close();
     }
+  });
+  ipcMain.handle('ask:getHistory', () => askSession);
+  ipcMain.on('ask:saveHistory', (_event, session) => {
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    askSession = {
+      messages: messages
+        .filter(
+          (item) =>
+            item &&
+            (item.role === 'user' || item.role === 'assistant') &&
+            typeof item.content === 'string'
+        )
+        .map((item) => ({ role: item.role, content: item.content })),
+      modelUsed: typeof session?.modelUsed === 'string' ? session.modelUsed : '',
+    };
   });
   ipcMain.handle('ask:chat', async (_event, messages) => {
     try {

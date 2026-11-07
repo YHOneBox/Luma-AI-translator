@@ -1361,6 +1361,28 @@ html.popup-page #root {
   line-height: 1.5;
 }
 
+.error-details {
+  max-width: 320px;
+  font-size: 11px;
+  color: #777;
+  text-align: left;
+}
+
+.error-details summary {
+  cursor: pointer;
+  text-align: center;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.error-details p {
+  font-size: 11px;
+  color: #777;
+  font-family: 'Consolas', 'Segoe UI', monospace;
+  word-break: break-word;
+  margin: 2px 0;
+}
+
 /* ── Result ── */
 
 .result-state {

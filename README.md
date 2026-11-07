@@ -81,7 +81,7 @@ They communicate through **IPC** via a secure bridge in `electron/preload.js` (`
 2. The main window hides briefly so it does not appear in the capture.
 3. A **popup window** opens near your cursor and shows *"Capturing screen…"*.
 4. The main process takes a **full-screen screenshot** via Electron's `desktopCapturer`.
-5. The screenshot is sent to **Gemini** as a PNG image with a structured JSON schema.
+5. The screenshot is sent to **Gemini** with a structured JSON schema — as a high-quality JPEG for full-screen captures (much smaller upload) or lossless PNG for small region crops.
 6. Gemini reads the visible text in the image and returns translation data.
 7. If the result is a **single word**, IPA and pronunciation audio are loaded. If it is a **sentence or paragraph**, TTS audio is loaded for source and translation.
 8. The popup updates with the full result.
@@ -132,8 +132,8 @@ Alt+C
 
 1. **Highlight text** in any app (browser, PDF, editor, etc.).
 2. Press `Alt+T` (or click **Translate Selection**).
-3. The app **hides its windows**, simulates `Ctrl+C` to copy your selection, and reads the clipboard.
-4. It verifies the clipboard text actually changed (retries copy if needed).
+3. The app hides any focused Luma window, clears the clipboard, simulates `Ctrl+C` to copy your selection, and polls the clipboard until text arrives.
+4. If nothing arrives it retries the copy (up to 3 times); your previous clipboard content is restored afterwards.
 5. The selected text is sent to Gemini as plain text (no screenshot).
 6. Pronunciation or phrase audio is loaded based on layout mode.
 7. The popup shows the final result in the appropriate layout.
@@ -322,9 +322,13 @@ Primary model  →  Fallback 1  →  Fallback 2  →  …
 | Fallback 1 | `gemini-3.6-flash` |
 | Fallback 2 | `gemini-3.5-flash` |
 
-**Timeout behavior:** Each model gets **10 seconds**. If it does not respond in time, the app automatically tries the next model and updates the popup message (e.g. *"Timed out on gemini-3.5-flash-lite, trying gemini-3.6-flash…"*).
+**Timeout behavior:** Each model gets **15 seconds** for a single word, **20 seconds** for a two-word phrase, and **30 seconds** for sentences and screenshots. A timed-out request is aborted (so it stops consuming quota) and the app tries the next model, updating the popup message (e.g. *"Timed out on gemini-3.5-flash-lite, trying gemini-3.6-flash…"*).
 
-If all models fail, the popup shows an error with details from each attempt.
+**Hedging:** Gemini's response time varies a lot under load (the same request can take 2s or 30s). If the primary model has not answered within **2.5 seconds** (4s for screenshots), the next model in the chain is started in parallel; whichever finishes first is used and the other request is aborted.
+
+**Retry behavior:** Transient failures — rate limits (429), server overload (5xx), or malformed JSON — are retried once on the same model after a short pause before falling back to the next model.
+
+If all models fail, the popup shows a short reason (rate limit, timeout, invalid key, …) with per-model details available under **Details**.
 
 ---
 
@@ -691,11 +695,13 @@ Luma/
 │                                                              │
 │  globalShortcut ──→ startTranslation / startSelection       │
 │         │                                                    │
-│         ├── capture.js ──→ PNG screenshot                   │
+│         ├── capture.js ──→ JPEG/PNG screenshot              │
 │         ├── selection.js ──→ clipboard text                   │
 │         │                                                    │
 │         ├── gemini.js ──→ Gemini API (structured JSON)      │
-│         │       └── 10s timeout → try next model            │
+│         │       ├── hedge: start fallback after 2.5s        │
+│         │       ├── retry once on 429 / 5xx / bad JSON      │
+│         │       └── abort on timeout → try next model       │
 │         │                                                    │
 │         ├── pronunciation.js                                │
 │         │       ├── resolveLayoutMode() → word | phrase     │

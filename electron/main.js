@@ -30,6 +30,7 @@ const { translateScreenshot, translateText, translateForReplace, correctGrammarF
 const { applyLaunchAtStartup, shouldStartHidden } = require('./autostart');
 const { checkForUpdates, downloadAndInstallUpdate, getChangelog, openReleasePage } = require('./updater');
 const { getSelectedText, replaceSelectedText } = require('./selection');
+const keysWin = require('./keys-win');
 const {
   loadSettings,
   saveSettings,
@@ -136,6 +137,7 @@ function showMainWindow() {
 
 function quitForUpdate() {
   appIsQuitting = true;
+  keysWin.shutdown();
   try {
     if (tray) {
       tray.destroy();
@@ -198,29 +200,29 @@ function createMainWindow() {
   return mainWindow;
 }
 
+const POPUP_WIDTH = 460;
+const POPUP_HEIGHT = 520;
+
+/**
+ * The popup is created once and then hidden/re-shown. Rebuilding a
+ * BrowserWindow and reloading the page on every hotkey cost several hundred
+ * milliseconds before the first "Translating..." frame could appear.
+ */
 function createPopupWindow() {
+  const { x, y, width, height } = placeNearCursor(POPUP_WIDTH, POPUP_HEIGHT);
+
   if (popupWindow && !popupWindow.isDestroyed()) {
-    popupWindow.close();
-  }
-
-  const cursor = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(cursor);
-  const popupWidth = 460;
-  const popupHeight = 520;
-
-  let x = cursor.x + 16;
-  let y = cursor.y + 16;
-
-  if (x + popupWidth > display.bounds.x + display.bounds.width) {
-    x = display.bounds.x + display.bounds.width - popupWidth - 16;
-  }
-  if (y + popupHeight > display.bounds.y + display.bounds.height) {
-    y = display.bounds.y + display.bounds.height - popupHeight - 16;
+    popupWindow.setBounds({ x, y, width, height });
+    // Reset the renderer before showing so the previous result never flashes.
+    popupWindow.webContents.send('translation:loading', { message: t('popup.translating') });
+    popupWindow.show();
+    popupWindow.focus();
+    return popupWindow;
   }
 
   popupWindow = new BrowserWindow({
-    width: popupWidth,
-    height: popupHeight,
+    width,
+    height,
     minWidth: 340,
     minHeight: 380,
     x,
@@ -246,6 +248,14 @@ function createPopupWindow() {
     if (popupWindow && !popupWindow.isDestroyed()) {
       popupWindow.show();
       popupWindow.focus();
+    }
+  });
+
+  popupWindow.on('close', (event) => {
+    if (!appIsQuitting && popupWindow && !popupWindow.isDestroyed()) {
+      event.preventDefault();
+      popupWindow.hide();
+      popupWindow.webContents.send('translation:hidden');
     }
   });
 
@@ -564,6 +574,12 @@ async function showStatusBar(message, options = {}) {
   }
 }
 
+/** First line of an error for the single-line status bar. */
+function errorHeadline(err, fallback) {
+  const line = String(err?.message || '').split('\n')[0].trim();
+  return line || fallback;
+}
+
 function sendToMainWindow(channel, data) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, data);
@@ -688,11 +704,11 @@ async function startTranslation(region) {
   try {
     await runWithPopup(async (sendProgress) => {
       sendProgress(t('progress.capturing'));
-      const imageBuffer = await captureScreen(region);
+      const { buffer, mimeType } = await captureScreen(region);
       if (mainWasVisible && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.showInactive();
       }
-      return translateScreenshot(imageBuffer, sendProgress);
+      return translateScreenshot(buffer, sendProgress, mimeType);
     });
   } finally {
     if (mainWasVisible && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
@@ -725,7 +741,7 @@ async function startReplaceSelectionTranslation() {
     text = await getSelectedText();
   } catch (err) {
     await showStatusBar(
-      err.message || t('statusBar.couldNotReadSelection'),
+      errorHeadline(err, t('statusBar.couldNotReadSelection')),
       { variant: 'error', autoCloseMs: 4500 }
     );
     return;
@@ -752,7 +768,7 @@ async function startReplaceSelectionTranslation() {
     });
   } catch (err) {
     await showStatusBar(
-      err.message || t('statusBar.replaceFailed'),
+      errorHeadline(err, t('statusBar.replaceFailed')),
       { variant: 'error', autoCloseMs: 4500 }
     );
   }
@@ -765,7 +781,7 @@ async function startGrammarCorrectionSelection() {
     text = await getSelectedText();
   } catch (err) {
     await showStatusBar(
-      err.message || t('statusBar.couldNotReadSelection'),
+      errorHeadline(err, t('statusBar.couldNotReadSelection')),
       { variant: 'error', autoCloseMs: 4500 }
     );
     return;
@@ -798,7 +814,7 @@ async function startGrammarCorrectionSelection() {
     );
   } catch (err) {
     await showStatusBar(
-      err.message || t('statusBar.grammarFailed'),
+      errorHeadline(err, t('statusBar.grammarFailed')),
       { variant: 'error', autoCloseMs: 4500 }
     );
   }
@@ -1048,6 +1064,10 @@ app.whenReady().then(() => {
   createMainWindow();
   registerHotkeys();
   setupIpc();
+  if (process.platform === 'win32') {
+    // Pre-load the keystroke helper so the first Alt+T / Alt+R is not slow.
+    setTimeout(() => keysWin.warmUp(), 1500);
+  }
   setTimeout(() => {
     checkUpdatesOnStartup();
   }, 4000);
@@ -1055,6 +1075,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  keysWin.shutdown();
   cleanupPortableCache();
 });
 

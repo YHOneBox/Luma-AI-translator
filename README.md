@@ -497,7 +497,7 @@ npm run dist:portable
 Output:
 
 ```
-release/Luma-1.0.15-win-Portable.exe
+release/Luma-1.0.16-win-Portable.exe
 ```
 
 Other build commands:

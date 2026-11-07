@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+/** Register a renderer listener and return its unsubscribe function. */
+function subscribe(channel, callback) {
+  const handler = (_event, data) => callback(data);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   translateScreen: () => ipcRenderer.send('translate:screen'),
   translateRegion: () => ipcRenderer.send('translate:region'),
@@ -31,21 +38,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('updates:progress', handler);
   },
   getChangelog: () => ipcRenderer.invoke('changelog:get'),
-  onTranslationLoading: (callback) => {
-    ipcRenderer.on('translation:loading', (_event, data) => callback(data));
-  },
-  onTranslationResult: (callback) => {
-    ipcRenderer.on('translation:result', (_event, data) => callback(data));
-  },
-  onTranslationError: (callback) => {
-    ipcRenderer.on('translation:error', (_event, data) => callback(data));
-  },
-  onTranslationPronunciation: (callback) => {
-    ipcRenderer.on('translation:pronunciation', (_event, data) => callback(data));
-  },
-  onDictionaryPronunciation: (callback) => {
-    ipcRenderer.on('dictionary:pronunciation', (_event, data) => callback(data));
-  },
+  onTranslationLoading: (callback) => subscribe('translation:loading', callback),
+  onTranslationResult: (callback) => subscribe('translation:result', callback),
+  onTranslationError: (callback) => subscribe('translation:error', callback),
+  onTranslationPronunciation: (callback) => subscribe('translation:pronunciation', callback),
+  onTranslationHidden: (callback) => subscribe('translation:hidden', callback),
+  onDictionaryPronunciation: (callback) => subscribe('dictionary:pronunciation', callback),
   closePopup: () => ipcRenderer.send('popup:close'),
   closeDictionary: () => ipcRenderer.send('dictionary:close'),
   dictionaryLookup: (text) => ipcRenderer.invoke('dictionary:lookup', text),
@@ -71,7 +69,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getI18nBundle: () => ipcRenderer.invoke('i18n:getBundle'),
   getSupportedLocales: () => ipcRenderer.invoke('i18n:getLocales'),
   setUiLocale: (payload) => ipcRenderer.invoke('i18n:setLocale', payload),
-  onStatusMessage: (callback) => {
-    ipcRenderer.on('status:message', (_event, data) => callback(data));
-  },
+  onStatusMessage: (callback) => subscribe('status:message', callback),
 });

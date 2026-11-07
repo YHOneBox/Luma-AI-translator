@@ -428,6 +428,29 @@ export function PhraseResult({
   );
 }
 
+/**
+ * Errors from the main process are "headline\ndetail\ndetail". Show the
+ * headline prominently and the per-model details small, instead of one blob.
+ */
+export function ErrorMessage({ message }) {
+  const [headline, ...rest] = String(message || '').split('\n');
+  const details = rest.filter((line) => line.trim());
+
+  return (
+    <>
+      <p>{headline}</p>
+      {details.length > 0 && (
+        <details className="error-details">
+          <summary>Details</summary>
+          {details.map((line, index) => (
+            <p key={index}>{line}</p>
+          ))}
+        </details>
+      )}
+    </>
+  );
+}
+
 export function mergePronunciation(prev, patch) {
   if (!prev) return prev;
   const next = { ...prev, ...patch };
@@ -461,35 +484,45 @@ export default function App() {
     const api = window.electronAPI;
     if (!api) return;
 
-    api.onTranslationLoading(({ message: msg }) => {
-      setState('loading');
-      setMessage(msg || t('popup.translating'));
-      setData(null);
+    const stopAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
       setPlaying(null);
-      setCopied(null);
-      setSourceExpanded(false);
-    });
+    };
 
-    api.onTranslationResult((result) => {
-      setState('success');
-      setData(result);
-    });
-
-    api.onTranslationPronunciation((patch) => {
-      setData((prev) => mergePronunciation(prev, patch));
-    });
-
-    api.onTranslationError(({ message: msg }) => {
-      setState('error');
-      setMessage(msg || t('popup.error'));
-      setData(null);
-    });
+    const unsubscribers = [
+      api.onTranslationLoading(({ message: msg }) => {
+        stopAudio();
+        setState('loading');
+        setMessage(msg || t('popup.translating'));
+        setData(null);
+        setCopied(null);
+        setSourceExpanded(false);
+      }),
+      api.onTranslationResult((result) => {
+        setState('success');
+        setData(result);
+      }),
+      api.onTranslationPronunciation((patch) => {
+        setData((prev) => mergePronunciation(prev, patch));
+      }),
+      api.onTranslationError(({ message: msg }) => {
+        stopAudio();
+        setState('error');
+        setMessage(msg || t('popup.error'));
+        setData(null);
+      }),
+      api.onTranslationHidden?.(() => stopAudio()),
+    ];
 
     return () => {
       document.body.classList.remove('popup-page');
       document.documentElement.classList.remove('popup-page');
-      if (audioRef.current) {
-        audioRef.current.pause();
+      stopAudio();
+      for (const unsubscribe of unsubscribers) {
+        if (typeof unsubscribe === 'function') unsubscribe();
       }
     };
   }, [t]);
@@ -551,7 +584,7 @@ export default function App() {
         {state === 'error' && (
           <div className="error-state">
             <p className="error-icon">!</p>
-            <p>{message}</p>
+            <ErrorMessage message={message} />
             <button className="btn-secondary" onClick={closePopup}>
               {t('popup.close')}
             </button>

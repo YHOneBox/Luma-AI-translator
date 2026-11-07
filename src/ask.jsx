@@ -1,8 +1,19 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useI18n } from './i18n';
-import MarkdownContent from './MarkdownContent';
 import './styles.css';
+
+// react-markdown + remark-gfm are only needed here; loading them lazily keeps
+// them out of the chunk shared by the popup, status bar, and region windows.
+const MarkdownContent = lazy(() => import('./MarkdownContent'));
+
+function AssistantMarkdown({ children }) {
+  return (
+    <Suspense fallback={<p className="ask-text">{children}</p>}>
+      <MarkdownContent>{children}</MarkdownContent>
+    </Suspense>
+  );
+}
 
 function AskApp() {
   const { t } = useI18n();
@@ -152,7 +163,7 @@ function AskApp() {
                 {msg.role === 'user' ? t('ask.you') : t('ask.assistant')}
               </span>
               {msg.role === 'assistant' ? (
-                <MarkdownContent>{msg.content}</MarkdownContent>
+                <AssistantMarkdown>{msg.content}</AssistantMarkdown>
               ) : (
                 <p className="ask-text">{msg.content}</p>
               )}

@@ -1,6 +1,9 @@
 const { desktopCapturer, screen, nativeImage } = require('electron');
 
 const MAX_DIMENSION = 1920;
+/** Above this many pixels a PNG is several MB; JPEG uploads far faster with no OCR loss. */
+const JPEG_PIXEL_THRESHOLD = 800 * 600;
+const JPEG_QUALITY = 90;
 
 function optimizeImage(image) {
   const { width, height } = image.getSize();
@@ -16,7 +19,22 @@ function optimizeImage(image) {
 }
 
 /**
- * Capture the screen under the cursor as a PNG buffer.
+ * Encode for upload. Small region crops stay PNG (lossless, tiny anyway);
+ * full-screen captures become high-quality JPEG so the request body shrinks
+ * from multiple MB to a few hundred KB.
+ * @returns {{ buffer: Buffer, mimeType: string }}
+ */
+function encodeForUpload(image) {
+  const { width, height } = image.getSize();
+  if (width * height > JPEG_PIXEL_THRESHOLD) {
+    return { buffer: image.toJPEG(JPEG_QUALITY), mimeType: 'image/jpeg' };
+  }
+  return { buffer: image.toPNG(), mimeType: 'image/png' };
+}
+
+/**
+ * Capture the screen under the cursor.
+ * @returns {Promise<{ buffer: Buffer, mimeType: string }>}
  */
 async function captureScreen(region = null) {
   const cursorPoint = screen.getCursorScreenPoint();
@@ -55,7 +73,7 @@ async function captureScreen(region = null) {
     });
   }
 
-  return optimizeImage(image).toPNG();
+  return encodeForUpload(optimizeImage(image));
 }
 
 module.exports = { captureScreen };

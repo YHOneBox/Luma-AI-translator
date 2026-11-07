@@ -1,6 +1,7 @@
 const { clipboard, BrowserWindow } = require('electron');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { sendKeys } = require('./keys-win');
 
 const execFileAsync = promisify(execFile);
 
@@ -28,17 +29,7 @@ function restoreClipboard(saved) {
 }
 
 async function simulateCopyWindows() {
-  await execFileAsync('powershell.exe', [
-    '-NoProfile',
-    '-Sta',
-    '-Command',
-    [
-      '$ErrorActionPreference = "Stop"',
-      'Add-Type -AssemblyName System.Windows.Forms',
-      'Start-Sleep -Milliseconds 80',
-      '[System.Windows.Forms.SendKeys]::SendWait("^c")',
-    ].join('; '),
-  ]);
+  await sendKeys('^c');
 }
 
 async function simulateCopyMac() {
@@ -63,17 +54,7 @@ async function simulateCopy() {
 }
 
 async function simulatePasteWindows() {
-  await execFileAsync('powershell.exe', [
-    '-NoProfile',
-    '-Sta',
-    '-Command',
-    [
-      '$ErrorActionPreference = "Stop"',
-      'Add-Type -AssemblyName System.Windows.Forms',
-      'Start-Sleep -Milliseconds 80',
-      '[System.Windows.Forms.SendKeys]::SendWait("^v")',
-    ].join('; '),
-  ]);
+  await sendKeys('^v');
 }
 
 async function simulatePasteMac() {
@@ -97,14 +78,39 @@ async function simulatePaste() {
   }
 }
 
-async function hideAppWindows() {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
-    // Keep the replace status bar visible while work is in progress.
-    if (win.getTitle() === 'Luma Status') continue;
-    win.hide();
+/**
+ * Simulated Ctrl+C goes to whichever window has keyboard focus. Only a focused
+ * Luma window can steal it, so hide just that one instead of every window
+ * (which also made the main window disappear on every selection hotkey).
+ * @returns {Promise<() => void>} restore function
+ */
+async function yieldFocusToSourceApp() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (!focused || focused.isDestroyed() || focused.getTitle() === 'Luma Status') {
+    return () => {};
   }
-  await sleep(200);
+
+  focused.hide();
+  await sleep(250);
+
+  return () => {
+    if (!focused.isDestroyed() && !focused.isVisible()) {
+      focused.showInactive();
+    }
+  };
+}
+
+const COPY_POLL_INTERVAL_MS = 40;
+const COPY_POLL_WINDOW_MS = [450, 650, 800];
+
+async function waitForClipboardText(maxWaitMs) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const text = clipboard.readText().trim();
+    if (text) return text;
+    await sleep(COPY_POLL_INTERVAL_MS);
+  }
+  return clipboard.readText().trim();
 }
 
 /**
@@ -113,20 +119,19 @@ async function hideAppWindows() {
  * @returns {Promise<string>}
  */
 async function getSelectedText() {
-  await hideAppWindows();
-  await sleep(100);
+  const restoreFocus = await yieldFocusToSourceApp();
 
   const saved = saveClipboard();
-  const previousText = saved.text;
 
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < COPY_POLL_WINDOW_MS.length; attempt++) {
+      // Start from an empty clipboard so we can tell a fresh copy from stale
+      // content — including the case where the user selects the same text twice.
+      clipboard.clear();
       await simulateCopy();
-      await sleep(attempt === 0 ? 350 : 500);
 
-      const text = clipboard.readText().trim();
-      if (text && text !== previousText) {
-        restoreClipboard(saved);
+      const text = await waitForClipboardText(COPY_POLL_WINDOW_MS[attempt]);
+      if (text) {
         return text;
       }
     }
@@ -134,9 +139,9 @@ async function getSelectedText() {
     throw new Error(
       'Could not copy selected text. Highlight a word in another app first, then use the hotkey (do not click this app before pressing it).'
     );
-  } catch (err) {
+  } finally {
     restoreClipboard(saved);
-    throw err;
+    restoreFocus();
   }
 }
 
@@ -151,8 +156,7 @@ async function replaceSelectedText(text) {
     throw new Error('Nothing to paste.');
   }
 
-  await hideAppWindows();
-  await sleep(100);
+  const restoreFocus = await yieldFocusToSourceApp();
 
   const saved = saveClipboard();
 
@@ -163,6 +167,7 @@ async function replaceSelectedText(text) {
     await sleep(200);
   } finally {
     restoreClipboard(saved);
+    restoreFocus();
   }
 }
 

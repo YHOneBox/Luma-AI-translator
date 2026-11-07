@@ -3,9 +3,32 @@ const { loadSettings, resolveSystemPrompt } = require('./settings');
 const { resolveApiKey } = require('./api-keys');
 const { detectInputMode, isTwoWordPhrase } = require('./translate-mode');
 
-const WORD_TIMEOUT_MS = 10000;
+const WORD_TIMEOUT_MS = 15000;
 const PAIR_TIMEOUT_MS = 20000;
-const PHRASE_TIMEOUT_MS = 25000;
+const PHRASE_TIMEOUT_MS = 30000;
+
+/** Retries of the SAME model on transient failures (429 / 5xx / bad JSON). */
+const MAX_TRANSIENT_RETRIES = 1;
+const RETRY_BASE_DELAY_MS = 900;
+
+/** Hedging: fire the next model in parallel once the current one is this slow. */
+const HEDGE_DELAY_MS = 2500;
+const SCREENSHOT_HEDGE_DELAY_MS = 4000;
+/** Long outputs legitimately take longer; hedge later so quota is not doubled. */
+const PAIR_HEDGE_DELAY_MS = 4500;
+const CHAT_HEDGE_DELAY_MS = 12000;
+const MAX_CONCURRENT_LANES = 2;
+
+const clientCache = new Map();
+
+function getClient(apiKey) {
+  let client = clientCache.get(apiKey);
+  if (!client) {
+    client = new GoogleGenAI({ apiKey });
+    clientCache.set(apiKey, client);
+  }
+  return client;
+}
 
 const WORD_SCHEMA = {
   type: Type.OBJECT,
@@ -133,6 +156,19 @@ const PHRASE_SCHEMA = {
   required: ['source_text', 'translation', 'source_language'],
 };
 
+/**
+ * For typed/selected text we already hold the source, so do not make the model
+ * echo it back — that roughly halves the output tokens on long passages.
+ */
+const TEXT_PHRASE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    translation: PHRASE_SCHEMA.properties.translation,
+    source_language: PHRASE_SCHEMA.properties.source_language,
+  },
+  required: ['translation', 'source_language'],
+};
+
 const SCREENSHOT_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -199,7 +235,6 @@ Rules:
 - Preserve meaning, tone, register, names, numbers, and formatting intent.
 - Preserve paragraph breaks, line breaks, and bullet/list structure from the source.
 - Do not add explanations, notes, or extra commentary outside the translation.
-- source_text must match the original input exactly (fix obvious OCR errors only if needed).
 - translation must contain ONLY the translated text in ${language}.`;
 }
 
@@ -236,14 +271,329 @@ Rules:
 - source_text must be the original two words.`;
 }
 
-function withTimeout(promise, ms, message) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * Run a Gemini request with a hard deadline. The AbortController cancels the
+ * underlying HTTP request so a slow call does not keep burning quota after we
+ * have already moved on to the next model.
+ */
+async function requestWithDeadline(ai, params, timeoutMs, cancelSignal) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onCancel = () => controller.abort();
+  cancelSignal?.addEventListener('abort', onCancel, { once: true });
+
+  try {
+    return await ai.models.generateContent({
+      ...params,
+      config: { ...params.config, abortSignal: controller.signal },
+    });
+  } catch (err) {
+    if (timedOut) {
+      const timeoutErr = new Error(`Timed out after ${Math.round(timeoutMs / 1000)}s`);
+      timeoutErr.code = 'TIMEOUT';
+      throw timeoutErr;
+    }
+    if (cancelSignal?.aborted) {
+      const cancelErr = new Error('Cancelled');
+      cancelErr.code = 'CANCELLED';
+      throw cancelErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    cancelSignal?.removeEventListener('abort', onCancel);
+  }
+}
+
+/**
+ * Model output occasionally arrives wrapped in a code fence or with trailing
+ * commentary even when JSON mode is requested. Recover the object instead of
+ * failing the whole translation.
+ */
+function parseJsonLoose(text) {
+  const raw = String(text || '').trim();
+  if (!raw) {
+    throw new Error('Empty response from model.');
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // fall through
+  }
+
+  const unfenced = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const start = unfenced.indexOf('{');
+  const end = unfenced.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(unfenced.slice(start, end + 1));
+    } catch {
+      // fall through
+    }
+  }
+
+  const err = new Error('Model returned malformed JSON.');
+  err.code = 'BAD_JSON';
+  throw err;
+}
+
+function extractStatus(err) {
+  if (!err) return 0;
+  const direct = Number(err.status || err.code || err.statusCode);
+  if (Number.isInteger(direct) && direct >= 100 && direct < 600) return direct;
+
+  const message = String(err.message || '');
+  const fromJson = message.match(/"code"\s*:\s*(\d{3})/);
+  if (fromJson) return Number(fromJson[1]);
+  const fromText = message.match(/\b(4\d\d|5\d\d)\b/);
+  if (fromText) return Number(fromText[1]);
+  return 0;
+}
+
+function classifyError(err) {
+  if (err?.code === 'TIMEOUT') return 'timeout';
+  if (err?.code === 'BAD_JSON') return 'bad_json';
+  if (String(err?.message || '') === 'Empty response from model.') return 'bad_json';
+
+  const status = extractStatus(err);
+  const message = String(err?.message || '').toLowerCase();
+
+  if (status === 429 || message.includes('resource_exhausted') || message.includes('quota')) {
+    return 'rate_limit';
+  }
+  if (
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    message.includes('overloaded') ||
+    message.includes('unavailable') ||
+    message.includes('deadline') ||
+    message.includes('fetch failed') ||
+    message.includes('econnreset') ||
+    message.includes('socket hang up') ||
+    message.includes('network')
+  ) {
+    return 'server';
+  }
+  if (status === 401 || status === 403 || message.includes('api key')) return 'auth';
+  if (status === 404 || message.includes('not found') || message.includes('not supported')) {
+    return 'model';
+  }
+  return 'other';
+}
+
+function shouldRetrySameModel(kind) {
+  return kind === 'rate_limit' || kind === 'server' || kind === 'bad_json';
+}
+
+function shortenError(err) {
+  const message = err?.message || 'failed';
+
+  try {
+    const parsed = JSON.parse(message);
+    return parsed?.error?.message || message;
+  } catch {
+    return message;
+  }
+}
+
+function describeFailure(entries) {
+  const kinds = new Set(entries.map((e) => e.kind));
+  let headline;
+
+  if (kinds.size === 1 && kinds.has('rate_limit')) {
+    headline = 'Gemini rate limit reached. Wait a minute and try again, or switch to another API key.';
+  } else if (kinds.size === 1 && kinds.has('timeout')) {
+    headline = 'Gemini did not answer in time. Check your connection and try again.';
+  } else if (kinds.has('auth') && kinds.size === 1) {
+    headline = 'Gemini rejected the API key. Check it in Settings → API Keys.';
+  } else if ([...kinds].every((k) => k === 'server' || k === 'timeout' || k === 'rate_limit')) {
+    headline = 'Gemini is busy right now. Try again in a few seconds.';
+  } else {
+    headline = 'All models failed.';
+  }
+
+  const details = entries.map((e) => `${e.model}: ${e.reason}`).join('\n');
+  const error = new Error(`${headline}\n${details}`);
+  error.kind = kinds.size === 1 ? [...kinds][0] : 'mixed';
+  return error;
+}
+
+/**
+ * Shared driver for every Gemini call: walks the model chain, retries the same
+ * model once on transient errors, and aborts requests on timeout.
+ *
+ * @param {object} options
+ * @param {import('@google/genai').GoogleGenAI} options.ai
+ * @param {object} options.settings
+ * @param {string} options.systemPrompt
+ * @param {Array} options.contents
+ * @param {object} [options.schema] JSON schema; when omitted, returns plain text
+ * @param {(msg: string) => void} [options.onProgress]
+ * @param {number} options.timeoutMs
+ * @param {string} [options.verb] progress verb, e.g. "Translating"
+ * @param {number} [options.hedgeDelayMs] start the next model in parallel after this long
+ * @param {boolean} [options.fastThinking] request minimal thinking (structured tasks)
+ *
+ * Latency on Gemini is dominated by server-side variance (the same request can
+ * take 2s or 30s). Instead of waiting for the primary to time out, a "hedge"
+ * request is fired on the next model once the primary has been silent for
+ * hedgeDelayMs; whichever answers first wins and the rest are aborted.
+ */
+function runModelChain({
+  ai,
+  settings,
+  systemPrompt,
+  contents,
+  schema,
+  onProgress,
+  timeoutMs,
+  verb = 'Translating',
+  hedgeDelayMs = HEDGE_DELAY_MS,
+  fastThinking = Boolean(schema),
+}) {
+  const modelsToTry = getModelChain(settings);
+  if (modelsToTry.length === 0) {
+    return Promise.reject(
+      new Error('No models configured. Open Settings and select a primary model.')
+    );
+  }
+
+  const baseConfig = {
+    systemInstruction: systemPrompt,
+    ...(schema ? { responseMimeType: 'application/json', responseJsonSchema: schema } : {}),
+  };
+
+  const failures = [];
+  const cancel = new AbortController();
+
+  /** One model's lane: its own transient retries; resolves with the result. */
+  const runLane = async (model) => {
+    let useFastThinking = fastThinking && !modelsRejectingThinkingConfig.has(model);
+
+    for (let retry = 0; retry <= MAX_TRANSIENT_RETRIES; retry++) {
+      if (cancel.signal.aborted) throw Object.assign(new Error('Cancelled'), { code: 'CANCELLED' });
+      if (retry > 0) onProgress?.(`Retrying ${model}...`);
+
+      const config = useFastThinking
+        ? { ...baseConfig, thinkingConfig: { thinkingLevel: 'MINIMAL' } }
+        : baseConfig;
+
+      try {
+        const response = await requestWithDeadline(
+          ai,
+          { model, contents, config },
+          timeoutMs,
+          cancel.signal
+        );
+        const text = String(response.text || '').trim();
+        if (schema) return { parsed: parseJsonLoose(text), model };
+        if (!text) throw new Error('Empty response from model.');
+        return { text, model };
+      } catch (err) {
+        if (err?.code === 'CANCELLED') throw err;
+
+        const kind = classifyError(err);
+
+        // Some models reject thinkingConfig with 400; drop it and try again
+        // immediately (does not consume the transient-retry budget).
+        if (useFastThinking && kind === 'other' && extractStatus(err) === 400) {
+          modelsRejectingThinkingConfig.add(model);
+          useFastThinking = false;
+          retry -= 1;
+          continue;
+        }
+
+        failures.push({ model, kind, reason: shortenError(err) });
+        if (retry < MAX_TRANSIENT_RETRIES && shouldRetrySameModel(kind)) {
+          await sleep(RETRY_BASE_DELAY_MS * (retry + 1));
+          continue;
+        }
+        throw Object.assign(new Error(kind), { code: 'LANE_FAILED', kind });
+      }
+    }
+    throw Object.assign(new Error('exhausted'), { code: 'LANE_FAILED', kind: 'other' });
+  };
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let nextIndex = 0;
+    let active = 0;
+    let hedgeTimer = null;
+
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hedgeTimer);
+      cancel.abort();
+      fn();
+    };
+
+    const scheduleHedge = () => {
+      clearTimeout(hedgeTimer);
+      if (nextIndex >= modelsToTry.length || active >= MAX_CONCURRENT_LANES) return;
+      hedgeTimer = setTimeout(() => {
+        if (settled || nextIndex >= modelsToTry.length) return;
+        onProgress?.(`${modelsToTry[nextIndex - 1]} is slow, also trying ${modelsToTry[nextIndex]}...`);
+        launch();
+      }, hedgeDelayMs);
+    };
+
+    const launch = () => {
+      if (settled || nextIndex >= modelsToTry.length) return;
+      const index = nextIndex++;
+      const model = modelsToTry[index];
+      active += 1;
+
+      if (index === 0) {
+        onProgress?.(
+          modelsToTry.length > 1
+            ? `${verb} (1/${modelsToTry.length}): ${model}...`
+            : `${verb} with ${model}...`
+        );
+      }
+
+      runLane(model)
+        .then((result) => finish(() => resolve(result)))
+        .catch((err) => {
+          active -= 1;
+          if (settled) return;
+          if (nextIndex < modelsToTry.length) {
+            if (active === 0) {
+              onProgress?.(
+                err?.kind === 'timeout'
+                  ? `Timed out on ${model}, trying ${modelsToTry[nextIndex]}...`
+                  : `${model} failed, trying ${modelsToTry[nextIndex]}...`
+              );
+              launch();
+            } else {
+              // Another lane is still running; let the next model hedge it.
+              scheduleHedge();
+            }
+          } else if (active === 0) {
+            finish(() => reject(describeFailure(failures)));
+          }
+        });
+
+      scheduleHedge();
+    };
+
+    launch();
+  });
+}
+
+/** Models that returned 400 for thinkingConfig; remembered for the session. */
+const modelsRejectingThinkingConfig = new Set();
 
 function getModelChain(settings) {
   const chain = [settings.primaryModel, ...(settings.fallbackModels || [])].filter(Boolean);
@@ -367,121 +717,46 @@ function formatScreenshotResult(parsed, modelUsed) {
   return formatWordResult(parsed, modelUsed, { mode: 'word' });
 }
 
-function shortenError(err) {
-  const message = err?.message || 'failed';
-
-  try {
-    const parsed = JSON.parse(message);
-    return parsed?.error?.message || message;
-  } catch {
-    return message;
-  }
-}
-
-async function generateWithFallback(
-  ai,
-  settings,
-  systemPrompt,
-  contents,
-  schema,
-  onProgress,
-  timeoutMs = WORD_TIMEOUT_MS
-) {
-  const modelsToTry = getModelChain(settings);
-  if (modelsToTry.length === 0) {
-    throw new Error('No models configured. Open Settings and select a primary model.');
-  }
-
-  const errors = [];
-
-  for (let i = 0; i < modelsToTry.length; i++) {
-    const model = modelsToTry[i];
-    const attempt = i + 1;
-
-    onProgress?.(
-      modelsToTry.length > 1
-        ? `Translating (${attempt}/${modelsToTry.length}): ${model}...`
-        : `Translating with ${model}...`
-    );
-
-    try {
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-            responseJsonSchema: schema,
-          },
-        }),
-        timeoutMs,
-        `Timed out after ${timeoutMs / 1000}s`
-      );
-
-      const text = response.text;
-      if (!text) {
-        throw new Error('Empty response from model.');
-      }
-
-      return { parsed: JSON.parse(text), model };
-    } catch (err) {
-      const reason = shortenError(err);
-      errors.push(`${model}: ${reason}`);
-
-      const nextModel = modelsToTry[i + 1];
-      if (nextModel && reason.includes('Timed out')) {
-        onProgress?.(`Timed out on ${model}, trying ${nextModel}...`);
-      }
-    }
-  }
-
-  throw new Error(`All models failed:\n${errors.join('\n')}`);
-}
-
-async function translateScreenshot(imageBuffer, onProgress) {
+function requireClient() {
   const settings = loadSettings();
   const apiKey = resolveApiKey(settings);
   if (!apiKey) {
     throw new Error('No Gemini API key configured. Open Settings → API Keys to add one.');
   }
+  return { settings, ai: getClient(apiKey) };
+}
 
-  const ai = new GoogleGenAI({ apiKey });
+function userMessage(text, extraParts = []) {
+  return [{ role: 'user', parts: [{ text }, ...extraParts] }];
+}
 
-  const { parsed, model } = await generateWithFallback(
+/**
+ * @param {Buffer} imageBuffer
+ * @param {(msg: string) => void} [onProgress]
+ * @param {string} [mimeType] image/png or image/jpeg
+ */
+async function translateScreenshot(imageBuffer, onProgress, mimeType = 'image/png') {
+  const { settings, ai } = requireClient();
+
+  const { parsed, model } = await runModelChain({
     ai,
     settings,
-    resolveScreenshotSystemPrompt(settings),
-    [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: 'Extract the primary text from this screenshot and return structured JSON. Use mode=pair for exactly two words, with a contextual translation, why that meaning fits, and a detailed description of each word. Use mode=phrase for any sentence or longer text and translate ALL extracted text completely.',
-          },
-          {
-            inlineData: {
-              mimeType: 'image/png',
-              data: imageBuffer.toString('base64'),
-            },
-          },
-        ],
-      },
-    ],
-    SCREENSHOT_SCHEMA,
+    systemPrompt: resolveScreenshotSystemPrompt(settings),
+    contents: userMessage(
+      'Extract the primary text from this screenshot and return structured JSON. Use mode=pair for exactly two words, with a contextual translation, why that meaning fits, and a detailed description of each word. Use mode=phrase for any sentence or longer text and translate ALL extracted text completely.',
+      [{ inlineData: { mimeType, data: imageBuffer.toString('base64') } }]
+    ),
+    schema: SCREENSHOT_SCHEMA,
     onProgress,
-    PHRASE_TIMEOUT_MS
-  );
+    timeoutMs: PHRASE_TIMEOUT_MS,
+    hedgeDelayMs: SCREENSHOT_HEDGE_DELAY_MS,
+  });
 
   return formatScreenshotResult(parsed, model);
 }
 
 async function translateText(text, onProgress) {
-  const settings = loadSettings();
-  const apiKey = resolveApiKey(settings);
-  if (!apiKey) {
-    throw new Error('No Gemini API key configured. Open Settings → API Keys to add one.');
-  }
+  const { settings, ai } = requireClient();
 
   const trimmed = String(text || '').trim();
   if (!trimmed) {
@@ -489,31 +764,25 @@ async function translateText(text, onProgress) {
   }
 
   const mode = detectInputMode(trimmed);
-  const ai = new GoogleGenAI({ apiKey });
 
   onProgress?.(
     mode === 'phrase' ? 'Translating text...' : mode === 'pair' ? 'Explaining phrase...' : 'Translating word...'
   );
 
   if (mode === 'pair') {
-    const { parsed, model } = await generateWithFallback(
+    const { parsed, model } = await runModelChain({
       ai,
       settings,
-      resolvePairSystemPrompt(settings),
-      [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `Explain this two-word phrase. Give the contextual translation, why it means that, and a detailed description of each word.\n\n${trimmed}`,
-            },
-          ],
-        },
-      ],
-      PAIR_SCHEMA,
+      systemPrompt: resolvePairSystemPrompt(settings),
+      contents: userMessage(
+        `Explain this two-word phrase. Give the contextual translation, why it means that, and a detailed description of each word.\n\n${trimmed}`
+      ),
+      schema: PAIR_SCHEMA,
       onProgress,
-      PAIR_TIMEOUT_MS
-    );
+      timeoutMs: PAIR_TIMEOUT_MS,
+      hedgeDelayMs: PAIR_HEDGE_DELAY_MS,
+      verb: 'Explaining',
+    });
 
     return formatPairResult(parsed, model, {
       sourceText: trimmed,
@@ -522,49 +791,33 @@ async function translateText(text, onProgress) {
   }
 
   if (mode === 'phrase') {
-    const { parsed, model } = await generateWithFallback(
+    const { parsed, model } = await runModelChain({
       ai,
       settings,
-      resolvePhraseSystemPrompt(settings),
-      [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `Translate the following text completely into the target language. Preserve all paragraph breaks.\n\n${trimmed}`,
-            },
-          ],
-        },
-      ],
-      PHRASE_SCHEMA,
+      systemPrompt: resolvePhraseSystemPrompt(settings),
+      contents: userMessage(
+        `Translate the following text completely into the target language. Preserve all paragraph breaks.\n\n${trimmed}`
+      ),
+      schema: TEXT_PHRASE_SCHEMA,
       onProgress,
-      PHRASE_TIMEOUT_MS
-    );
+      timeoutMs: PHRASE_TIMEOUT_MS,
+    });
 
     return formatPhraseResult(parsed, model, {
       sourceText: trimmed,
-      source_text: parsed.source_text?.trim() || trimmed,
+      source_text: trimmed,
     });
   }
 
-  const { parsed, model } = await generateWithFallback(
+  const { parsed, model } = await runModelChain({
     ai,
     settings,
-    resolveSystemPrompt(settings),
-    [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: `This is a single word lookup. Return dictionary-style JSON for:\n\n${trimmed}`,
-          },
-        ],
-      },
-    ],
-    WORD_SCHEMA,
+    systemPrompt: resolveSystemPrompt(settings),
+    contents: userMessage(`This is a single word lookup. Return dictionary-style JSON for:\n\n${trimmed}`),
+    schema: WORD_SCHEMA,
     onProgress,
-    WORD_TIMEOUT_MS
-  );
+    timeoutMs: WORD_TIMEOUT_MS,
+  });
 
   return formatWordResult(parsed, model, { sourceText: trimmed, source_text: trimmed });
 }
@@ -580,16 +833,11 @@ Rules:
 - Preserve meaning, tone, register, names, numbers, and formatting intent.
 - Preserve paragraph breaks, line breaks, and bullet/list structure from the source.
 - Do not add explanations, notes, or commentary outside the translation.
-- source_text must match the original input exactly.
 - translation must contain ONLY the translated text in ${language}.`;
 }
 
 async function translateForReplace(text, onProgress) {
-  const settings = loadSettings();
-  const apiKey = resolveApiKey(settings);
-  if (!apiKey) {
-    throw new Error('No Gemini API key configured. Open Settings → API Keys to add one.');
-  }
+  const { settings, ai } = requireClient();
 
   const trimmed = String(text || '').trim();
   if (!trimmed) {
@@ -597,32 +845,24 @@ async function translateForReplace(text, onProgress) {
   }
 
   const language = settings.replaceLanguage || 'English';
-  const ai = new GoogleGenAI({ apiKey });
 
   onProgress?.(`Translating to ${language}...`);
 
-  const { parsed, model } = await generateWithFallback(
+  const { parsed, model } = await runModelChain({
     ai,
     settings,
-    resolveReplaceSystemPrompt(settings),
-    [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: `Translate the following text completely into ${language}. Preserve all paragraph breaks.\n\n${trimmed}`,
-          },
-        ],
-      },
-    ],
-    PHRASE_SCHEMA,
+    systemPrompt: resolveReplaceSystemPrompt(settings),
+    contents: userMessage(
+      `Translate the following text completely into ${language}. Preserve all paragraph breaks.\n\n${trimmed}`
+    ),
+    schema: TEXT_PHRASE_SCHEMA,
     onProgress,
-    PHRASE_TIMEOUT_MS
-  );
+    timeoutMs: PHRASE_TIMEOUT_MS,
+  });
 
   const result = formatPhraseResult(parsed, model, {
     sourceText: trimmed,
-    source_text: parsed.source_text?.trim() || trimmed,
+    source_text: trimmed,
   });
 
   if (!result.translation?.trim()) {
@@ -646,7 +886,6 @@ Rules:
 - Preserve paragraph breaks, line breaks, list structure, names, numbers, and formatting intent.
 - Do NOT add explanations, notes, labels, or commentary.
 - If the text is already correct, return it unchanged.
-- source_text must match the original input exactly.
 - corrected_text must contain ONLY the corrected text in the original language(s).
 - source_language should be a short language name or BCP-47 code for the primary language detected.`;
 }
@@ -654,10 +893,6 @@ Rules:
 const GRAMMAR_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    source_text: {
-      type: Type.STRING,
-      description: 'The original text exactly as provided.',
-    },
     source_language: {
       type: Type.STRING,
       description:
@@ -669,7 +904,7 @@ const GRAMMAR_SCHEMA = {
         'Grammar-corrected text in the SAME language as the source. Preserve paragraph breaks. Do not translate. Do not add commentary.',
     },
   },
-  required: ['source_text', 'source_language', 'corrected_text'],
+  required: ['source_language', 'corrected_text'],
 };
 
 const CHAT_TIMEOUT_MS = 60000;
@@ -678,67 +913,12 @@ const ASK_AI_SYSTEM_PROMPT = `You are Luma Ask AI — a fast, helpful desktop as
 Answer clearly and directly. Match the user's language unless they ask otherwise.
 Use short paragraphs or tight bullet lists when helpful. Do not invent API keys or claim you can control the user's computer.`;
 
-async function generateTextWithFallback(ai, settings, systemPrompt, contents, onProgress, timeoutMs) {
-  const modelsToTry = getModelChain(settings);
-  if (modelsToTry.length === 0) {
-    throw new Error('No models configured. Open Settings and select a primary model.');
-  }
-
-  const errors = [];
-
-  for (let i = 0; i < modelsToTry.length; i++) {
-    const model = modelsToTry[i];
-    const attempt = i + 1;
-
-    onProgress?.(
-      modelsToTry.length > 1
-        ? `Thinking (${attempt}/${modelsToTry.length}): ${model}...`
-        : `Thinking with ${model}...`
-    );
-
-    try {
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction: systemPrompt,
-          },
-        }),
-        timeoutMs,
-        `Timed out after ${timeoutMs / 1000}s`
-      );
-
-      const text = String(response.text || '').trim();
-      if (!text) {
-        throw new Error('Empty response from model.');
-      }
-
-      return { text, model };
-    } catch (err) {
-      const reason = shortenError(err);
-      errors.push(`${model}: ${reason}`);
-
-      const nextModel = modelsToTry[i + 1];
-      if (nextModel && reason.includes('Timed out')) {
-        onProgress?.(`Timed out on ${model}, trying ${nextModel}...`);
-      }
-    }
-  }
-
-  throw new Error(`All models failed:\n${errors.join('\n')}`);
-}
-
 /**
  * Multi-turn chat for Ask AI.
  * @param {{ role: 'user' | 'assistant', content: string }[]} messages
  */
 async function chatAsk(messages, onProgress) {
-  const settings = loadSettings();
-  const apiKey = resolveApiKey(settings);
-  if (!apiKey) {
-    throw new Error('No Gemini API key configured. Open Settings → API Keys to add one.');
-  }
+  const { settings, ai } = requireClient();
 
   const cleaned = (Array.isArray(messages) ? messages : [])
     .map((m) => ({
@@ -756,17 +936,18 @@ async function chatAsk(messages, onProgress) {
     parts: [{ text: m.content }],
   }));
 
-  const ai = new GoogleGenAI({ apiKey });
   onProgress?.('Thinking…');
 
-  const { text, model } = await generateTextWithFallback(
+  const { text, model } = await runModelChain({
     ai,
     settings,
-    ASK_AI_SYSTEM_PROMPT,
+    systemPrompt: ASK_AI_SYSTEM_PROMPT,
     contents,
     onProgress,
-    CHAT_TIMEOUT_MS
-  );
+    timeoutMs: CHAT_TIMEOUT_MS,
+    hedgeDelayMs: CHAT_HEDGE_DELAY_MS,
+    verb: 'Thinking',
+  });
 
   return {
     reply: text,
@@ -775,38 +956,27 @@ async function chatAsk(messages, onProgress) {
 }
 
 async function correctGrammarForReplace(text, onProgress) {
-  const settings = loadSettings();
-  const apiKey = resolveApiKey(settings);
-  if (!apiKey) {
-    throw new Error('No Gemini API key configured. Open Settings → API Keys to add one.');
-  }
+  const { settings, ai } = requireClient();
 
   const trimmed = String(text || '').trim();
   if (!trimmed) {
     throw new Error('No text selected.');
   }
 
-  const ai = new GoogleGenAI({ apiKey });
   onProgress?.('Checking grammar…');
 
-  const { parsed, model } = await generateWithFallback(
+  const { parsed, model } = await runModelChain({
     ai,
     settings,
-    resolveGrammarSystemPrompt(),
-    [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: `Detect the language of the following text and correct its grammar and fluency in that same language. Do not translate.\n\n${trimmed}`,
-          },
-        ],
-      },
-    ],
-    GRAMMAR_SCHEMA,
+    systemPrompt: resolveGrammarSystemPrompt(),
+    contents: userMessage(
+      `Detect the language of the following text and correct its grammar and fluency in that same language. Do not translate.\n\n${trimmed}`
+    ),
+    schema: GRAMMAR_SCHEMA,
     onProgress,
-    PHRASE_TIMEOUT_MS
-  );
+    timeoutMs: PHRASE_TIMEOUT_MS,
+    verb: 'Checking',
+  });
 
   const corrected = String(parsed.corrected_text || '').trim();
   if (!corrected) {
@@ -831,4 +1001,6 @@ module.exports = {
   WORD_TIMEOUT_MS,
   PHRASE_TIMEOUT_MS,
   CHAT_TIMEOUT_MS,
+  /** Exposed for tests only. */
+  _internal: { runModelChain, parseJsonLoose, classifyError, describeFailure },
 };

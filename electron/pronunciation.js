@@ -1,9 +1,11 @@
 const https = require('https');
 const http = require('http');
+const { isSingleEnglishWord, getSourceText } = require('./translate-mode');
 
 const REQUEST_TIMEOUT_MS = 4000;
 const IPA_TIMEOUT_MS = 2500;
 const AUDIO_CACHE_LIMIT = 80;
+const USER_AGENT = `Luma/${require('../package.json').version} (Electron)`;
 
 const audioCache = new Map();
 const ipaCache = new Map();
@@ -16,7 +18,7 @@ function httpGetBuffer(url, redirectCount = 0, timeoutMs = REQUEST_TIMEOUT_MS) {
       url,
       {
         headers: {
-          'User-Agent': 'Luma/1.0.15 (Electron)',
+          'User-Agent': USER_AGENT,
           Accept: '*/*',
         },
         timeout: timeoutMs,
@@ -79,8 +81,6 @@ function normalizeIpa(ipa) {
   const inner = trimmed.replace(/^\/+|\/+$/g, '');
   return inner ? `/${inner}/` : '';
 }
-
-const { isSingleEnglishWord } = require('./translate-mode');
 
 function looksLikeAudio(body, contentType) {
   if (!body || body.length < 64) return false;
@@ -305,7 +305,6 @@ async function enrichWithPronunciation(result, onPartial) {
 }
 
 async function enrichPhraseResult(result, targetLanguage = 'English', onPartial) {
-  const { getSourceText } = require('./translate-mode');
   const source = getSourceText(result);
   const translation = String(result.translation || '').trim();
   const targetLang = getTtsLangCode(targetLanguage);
